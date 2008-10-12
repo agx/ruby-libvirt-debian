@@ -2,14 +2,15 @@ Source: ruby-libvirt
 Section: libs
 Priority: extra
 Maintainer: Debian Libvirt Maintainers <pkg-libvirt-maintainers@lists.alioth.debian.org>
-Uploaders: Guido Guenther <agx@sigxcpu.org>
-Build-Depends: cdbs, debhelper (>= 7)
-Standards-Version: 3.7.3
+Uploaders: Guido Günther <agx@sigxcpu.org>
+Build-Depends: cdbs, debhelper (>= 7), ruby-pkg-tools, rake, ruby1.8-dev,
+ rubygems, libvirt-dev, pkg-config
+Standards-Version: 3.8.0
 Homepage: http://libvirt.org/ruby/
 
-Package: ruby-libvirt
-Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Package: libvirt-ruby
+Architecture: all
+Depends: libvirt-ruby1.8
 Description: Ruby bindings for libvirt
  This library provides Ruby bindings for using libvirt.
  .
@@ -18,4 +19,18 @@ Description: Ruby bindings for libvirt
  a long term stable C API for different virtualization mechanisms. It currently
  supports QEMU, KVM, and XEN.
  .
- This package contains the shared library
+ This is a dependency package which depends on Debian's default Ruby version
+ (currently 1.8).
+
+Package: libvirt-ruby1.8
+Architecture: any
+Depends: ${shlibs:Depends}
+Description: Ruby bindings for libvirt
+ This library provides Ruby bindings for using libvirt.
+ .
+ Libvirt is a toolkit to interact with the virtualization capabilities
+ of recent versions of Linux (and other OSes). The library aims at providing
+ a long term stable C API for different virtualization mechanisms. It currently
+ supports QEMU, KVM, and XEN.
+ .
+ This package is built for Ruby 1.8.

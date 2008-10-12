@@ -1,24 +1,26 @@
 This package was debianized by Guido Günther <agx@sigxcpu.org> on
 Sat, 11 Oct 2008 15:50:46 +0200.
 
-It was downloaded from <url://example.com>
+It was downloaded from http://libvirt.org/ruby/
 
-Upstream Author(s):
+Upstream Author:
 
-    <put author's name and email here>
-    <likewise for another author>
+    David Lutterkort <dlutter@redhat.com>
 
 Copyright:
 
-    <Copyright (C) YYYY Name OfAuthor>
-    <likewise for another author>
+    Copyright (C) 2007 Red Hat, Inc.
 
 License:
 
-    <Put the license of the package here indented by 4 spaces>
+ This library is free software; you can redistribute it and/or
+ modify it under the terms of the GNU Lesser General Public
+ License as published by the Free Software Foundation; either
+ version 2.1 of the License, or (at your option) any later version.
+
+On Debian systems, the complete text of the GNU Lesser General
+Public License can be found in `/usr/share/common-licenses/LGPL'.
 
 The Debian packaging is (C) 2008, Guido Günther <agx@sigxcpu.org> and
 is licensed under the GPL, see `/usr/share/common-licenses/GPL'.
 
-# Please also look if there are files or directories which have a
-# different copyright/license attached and list them here.
