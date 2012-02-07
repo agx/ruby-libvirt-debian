@@ -1,7 +1,7 @@
 # -*- ruby -*-
 # Rakefile: build ruby libvirt bindings
 #
-# Copyright (C) 2007 Red Hat, Inc.
+# Copyright (C) 2007,2010 Red Hat, Inc.
 #
 # Distributed under the GNU Lesser General Public License v2.1 or later.
 # See COPYING for details
@@ -13,78 +13,119 @@ require 'rake/clean'
 require 'rake/rdoctask'
 require 'rake/testtask'
 require 'rake/gempackagetask'
+require 'rbconfig'
 
 PKG_NAME='ruby-libvirt'
-PKG_VERSION='0.0.7'
+PKG_VERSION='0.4.0'
 
 EXT_CONF='ext/libvirt/extconf.rb'
 MAKEFILE="ext/libvirt/Makefile"
 LIBVIRT_MODULE="ext/libvirt/_libvirt.so"
 SPEC_FILE="ruby-libvirt.spec"
-LIBVIRT_SRC=LIBVIRT_MODULE.gsub(/.so$/, ".c")
+LIBVIRT_SRC=Dir.glob("ext/libvirt/*.c")
+LIBVIRT_SRC << MAKEFILE
 
 #
 # Additional files for clean/clobber
 #
 
-CLEAN.include "**/*~"
+CLEAN.include [ "ext/**/*.o", LIBVIRT_MODULE,
+                "ext/**/depend" ]
 
-CLOBBER.include [ "config.save",
-                  "ext/**/*.o", LIBVIRT_MODULE,
-                  "ext/**/depend", "ext/**/mkmf.log", 
+CLOBBER.include [ "config.save", "ext/**/mkmf.log", "ext/**/extconf.h",
                   MAKEFILE ]
 
 #
 # Build locally
 #
-# FIXME: We can't get rid of install.rb yet, since there's no way
-# to pass config options to extconf.rb
 file MAKEFILE => EXT_CONF do |t|
     Dir::chdir(File::dirname(EXT_CONF)) do
-         unless sh "ruby #{File::basename(EXT_CONF)}"
-             $stderr.puts "Failed to run extconf"
-             break
-         end
+        extra = ""
+        args = ARGV.grep(/^--with-libvirt-include=/)
+        extra += args[0].chomp unless args.empty?
+        args = ARGV.grep(/^--with-libvirt-lib=/)
+        extra += " " + args[0].chomp unless args.empty?
+
+        unless sh "ruby #{File::basename(EXT_CONF)} #{extra}"
+            $stderr.puts "Failed to run extconf"
+            break
+        end
     end
 end
-file LIBVIRT_MODULE => [ MAKEFILE, LIBVIRT_SRC ] do |t|
+file LIBVIRT_MODULE => LIBVIRT_SRC do |t|
     Dir::chdir(File::dirname(EXT_CONF)) do
-         unless sh "make"
-             $stderr.puts "make failed"
-             break
-         end
+        unless sh "make"
+            $stderr.puts "make failed"
+            break
+        end
      end
 end
 desc "Build the native library"
 task :build => LIBVIRT_MODULE
 
+#
+# Test task
+#
+
 Rake::TestTask.new(:test) do |t|
-    t.test_files = FileList['tests/tc_*.rb']
+    t.test_files = [ 'tests/test_conn.rb', 'tests/test_domain.rb',
+                     'tests/test_interface.rb', 'tests/test_network.rb',
+                     'tests/test_nodedevice.rb', 'tests/test_nwfilter.rb',
+                     'tests/test_open.rb', 'tests/test_secret.rb',
+                     'tests/test_storage.rb' ]
     t.libs = [ 'lib', 'ext/libvirt' ]
 end
 task :test => :build
 
+#
+# Documentation tasks
+#
+
+RDOC_FILES = FileList[ "README.rdoc", "lib/libvirt.rb",
+                       "ext/libvirt/_libvirt.c", "ext/libvirt/connect.c",
+                       "ext/libvirt/domain.c", "ext/libvirt/interface.c",
+                       "ext/libvirt/network.c", "ext/libvirt/nodedevice.c",
+                       "ext/libvirt/nwfilter.c", "ext/libvirt/secret.c",
+                       "ext/libvirt/storage.c", "ext/libvirt/stream.c" ]
+
 Rake::RDocTask.new do |rd|
     rd.main = "README.rdoc"
     rd.rdoc_dir = "doc/site/api"
-    rd.rdoc_files.include("README.rdoc", "lib/**/*.rb", "ext/**/*.[ch]")
+    rd.rdoc_files.include(RDOC_FILES)
+end
+
+Rake::RDocTask.new(:ri) do |rd|
+    rd.main = "README.rdoc"
+    rd.rdoc_dir = "doc/ri"
+    rd.options << "--ri-system"
+    rd.rdoc_files.include(RDOC_FILES)
+end
+
+#
+# Splint task
+#
+
+task :splint => [ MAKEFILE ] do |t|
+    Dir::chdir(File::dirname(EXT_CONF)) do
+        unless sh "splint -I" + Config::CONFIG['vendorarchdir'] + " *.c"
+            $stderr.puts "Failed to run splint"
+            break
+        end
+    end
 end
 
 #
 # Package tasks
 #
 
-PKG_FILES = FileList[
-  "Rakefile", "COPYING", "README", "NEWS", "README.rdoc",
-  "lib/**/*.rb",
-  "ext/**/*.[ch]", "ext/**/MANIFEST", "ext/**/extconf.rb",
-  "tests/**/*",
-  "spec/**/*"
-]
+PKG_FILES = FileList[ "Rakefile", "COPYING", "README", "NEWS", "README.rdoc",
+                      "lib/**/*.rb",
+                      "ext/**/*.[ch]", "ext/**/MANIFEST", "ext/**/extconf.rb",
+                      "tests/**/*",
+                      "spec/**/*" ]
 
-DIST_FILES = FileList[
-  "pkg/*.src.rpm",  "pkg/*.gem",  "pkg/*.zip", "pkg/*.tgz"
-]
+DIST_FILES = FileList[ "pkg/*.src.rpm",  "pkg/*.gem",  "pkg/*.zip",
+                       "pkg/*.tgz" ]
 
 SPEC = Gem::Specification.new do |s|
     s.name = PKG_NAME
@@ -93,25 +134,16 @@ SPEC = Gem::Specification.new do |s|
     s.homepage = "http://libvirt.org/ruby/"
     s.summary = "Ruby bindings for LIBVIRT"
     s.files = PKG_FILES
-    s.autorequire = "libvirt"
     s.required_ruby_version = '>= 1.8.1'
     s.extensions = "ext/libvirt/extconf.rb"
-    s.description = <<EOF
-Provides bindings for libvirt.
-EOF
+    s.author = "David Lutterkort, Chris Lalancette"
+    s.rubyforge_project = "None"
+    s.description = "Ruby bindings for libvirt."
 end
 
 Rake::GemPackageTask.new(SPEC) do |pkg|
     pkg.need_tar = true
     pkg.need_zip = true
-end
-
-desc "Update the ruby-libvirt site"
-task :site => [ :rdoc ] do |t|
-    system("rsync -av doc/site/ libvirt:/data/www/libvirt.org/ruby/")
-    if $? != 0
-        raise "rsync failed: #{$?}"
-    end
 end
 
 desc "Build (S)RPM for #{PKG_NAME}"
@@ -124,16 +156,4 @@ task :rpm => [ :package ] do |t|
             raise "rpmbuild failed"
         end
     end
-end
-
-desc "Release a version to the site"
-task :dist => [ :rpm ] do |t|
-    puts "Copying files"
-    unless sh "scp -p #{DIST_FILES.to_s} libvirt:/data/www/libvirt.org/ruby/download"
-        $stderr.puts "Copy to libvirt failed"
-        break
-    end
-    puts "Commit and tag #{PKG_VERSION}"
-    system "hg commit -m 'Released version #{PKG_VERSION}'"
-    system "hg tag -m 'Tag release #{PKG_VERSION}' #{PKG_NAME}-#{PKG_VERSION}"
 end
