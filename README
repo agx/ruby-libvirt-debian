@@ -7,7 +7,7 @@ Usage
 -----
 
 In your ruby code, do a "require 'libvirt'"; to obtain a connection, use
-'Libvirt::open' or 'Libvirt::openReadOnly'. See tests/*.rb for more
+'Libvirt::open' or 'Libvirt::open_read_only'. See tests/*.rb for more
 examples.
 
 Hacking
@@ -23,4 +23,30 @@ To run against the checkout, make sure you set RUBYLIB (assuming DIR is the
 toplevel of your source checkout):
 
   export RUBYLIB=$dir/lib:$dir/ext/libvirt
-  ruby -rlibvirt -e 'puts Libvirt::version("xen")[0]'
+  ruby -rlibvirt -e 'puts Libvirt::version[0]'
+
+Notes
+-----
+As of June 24, 2011, the ruby-libvirt bindings support all of the libvirt
+APIs up to libvirt commit hash 2c5ded6e8269463d2daab3dfa0ecae1477730ee2
+with the following exceptions:
+
+- virConnectRef
+- virDomainGetConnect
+- virDomainRef
+- virDomainOpenConsole
+- virNetworkGetConnect
+- virNetworkRef
+- virInterfaceGetConnect
+- virInterfaceRef
+- virStoragePoolGetConnect
+- virStoragePoolRef
+- virStorageVolGetConnect
+- virStorageVolRef
+- virNodeDeviceRef
+- virSecretGetConnect
+- virSecretRef
+- virStreamRef
+- virNWFilterRef
+- virEventRegisterDefaultImpl
+- virEventRunDefaultImpl

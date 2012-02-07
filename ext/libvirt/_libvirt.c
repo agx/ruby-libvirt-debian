@@ -1,7 +1,7 @@
 /*
  * libvirt.c: Ruby bindings for libvirt
  *
- * Copyright (C) 2007 Red Hat Inc.
+ * Copyright (C) 2007,2010 Red Hat Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -24,1888 +24,987 @@
 #include <libvirt/libvirt.h>
 #include <libvirt/virterror.h>
 #include "extconf.h"
+#include "common.h"
+#include "storage.h"
+#include "connect.h"
+#include "network.h"
+#include "nodedevice.h"
+#include "secret.h"
+#include "nwfilter.h"
+#include "interface.h"
+#include "domain.h"
+#include "stream.h"
 
-static VALUE m_libvirt;
-static VALUE c_connect;
-static VALUE c_domain;
-static VALUE c_domain_info;
-#if HAVE_TYPE_VIRNETWORKPTR
-static VALUE c_network;
-#endif
 static VALUE c_libvirt_version;
-static VALUE c_node_info;
-#if HAVE_TYPE_VIRSTORAGEPOOLPTR
-static VALUE c_storage_pool;
-static VALUE c_storage_pool_info;
-#endif
-#if HAVE_TYPE_VIRSTORAGEVOLPTR
-static VALUE c_storage_vol;
-static VALUE c_storage_vol_info;
-#endif
 
+VALUE m_libvirt;
 
-// define additional errors here
-static VALUE e_Error;                   // Error - generic error
-static VALUE e_ConnectionError;         // ConnectionError - error durring connection establishment
-static VALUE e_DefinitionError;         // DefinitionError - error during data definition
-static VALUE e_RetrieveError;           // RetrievalError - error during data retrieval
+/* define additional errors here */
+static VALUE e_ConnectionError;         /* ConnectionError - error during connection establishment */
+VALUE e_DefinitionError;
+VALUE e_RetrieveError;
+VALUE e_Error;
+VALUE e_NoSupportError;
 
-/*
- * Internal helpers
- */
-
-/* Macros to ease some of the boilerplate */
-
-#define generic_free(kind, p)                                           \
-    do {                                                                \
-        int r;                                                          \
-        r = vir##kind##Free((vir##kind##Ptr) p);                        \
-        if (r < 0)                                                      \
-            rb_raise(rb_eSystemCallError, # kind " free failed");       \
-    } while(0);
-
-#define generic_get(kind, v)                                            \
-    do {                                                                \
-        vir##kind##Ptr ptr;                                             \
-        Data_Get_Struct(v, vir##kind, ptr);                             \
-        if (!ptr)                                                       \
-            rb_raise(rb_eArgError, #kind " has been freed");            \
-        return ptr;                                                     \
-    } while (0);
-
-static VALUE generic_new(VALUE klass, void *ptr, VALUE conn,
-                         RUBY_DATA_FUNC free_func) {
-    VALUE result;
-    result = Data_Wrap_Struct(klass, NULL, free_func, ptr);
-    rb_iv_set(result, "@connection", conn);
-    return result;
+/* custom error function to suppress libvirt printing to stderr */
+static void rubyLibvirtErrorFunc(void *userdata, virErrorPtr err){
 }
-
-/* Error handling */
-#define _E(cond, excep) \
-    do { if (cond) vir_error(excep); } while(0)
-
-NORETURN(static void vir_error(VALUE exception));
-
-static void vir_error(VALUE exception) {
-    rb_exc_raise(exception);
-}
-
-static VALUE create_error(VALUE error, const char* method, const char* msg,
-                          virConnectPtr conn) {
-    VALUE ruby_errinfo;
-    virErrorPtr err;
-
-    if (msg == NULL || strlen(msg) == 0) {
-        char *defmsg;
-        size_t len;
-        len = snprintf(NULL, 0, "Call to function %s failed", method) + 1;
-        defmsg = ALLOC_N(char, len);
-        snprintf(defmsg, len, "Call to function %s failed", method);
-        ruby_errinfo = rb_exc_new2(error, defmsg);
-        free(defmsg);
-    } else {
-        ruby_errinfo = rb_exc_new2(error, msg);
-    }
-    rb_iv_set(ruby_errinfo, "@libvirt_function_name", rb_str_new2(method));
-
-    if (conn == NULL)
-        err = virGetLastError();
-    else
-        err = virConnGetLastError(conn);
-
-    if (err != NULL && err->message != NULL) {
-        rb_iv_set(ruby_errinfo, "@libvirt_message", rb_str_new2(err->message));
-    }
-
-    return ruby_errinfo;
-};
-
-
-/* Connections */
-static void connect_close(void *p) {
-    int r;
-
-    if (!p)
-        return;
-    r = virConnectClose((virConnectPtr) p);
-    _E(r < 0, create_error(rb_eSystemCallError, "connect_close",
-                           "Connection close failed", p));
-}
-
-static VALUE connect_new(virConnectPtr p) {
-    return Data_Wrap_Struct(c_connect, NULL, connect_close, p);
-}
-
-static virConnectPtr connect_get(VALUE s) {
-    generic_get(Connect, s);
-}
-
-static VALUE conn_attr(VALUE s) {
-    if (rb_obj_is_instance_of(s, c_connect) != Qtrue) {
-        s = rb_iv_get(s, "@connection");
-    }
-    if (rb_obj_is_instance_of(s, c_connect) != Qtrue) {
-        rb_raise(rb_eArgError, "Expected Connection object");
-    }
-    return s;
-}
-
-static virConnectPtr conn(VALUE s) {
-    s = conn_attr(s);
-    virConnectPtr conn;
-    Data_Get_Struct(s, virConnect, conn);
-    if (!conn)
-        rb_raise(rb_eArgError, "Connection has been closed");
-    return conn;
-}
-
-/* Domains */
-static void domain_free(void *d) {
-    generic_free(Domain, d);
-}
-
-static virDomainPtr domain_get(VALUE s) {
-    generic_get(Domain, s);
-}
-
-static VALUE domain_new(virDomainPtr d, VALUE conn) {
-    return generic_new(c_domain, d, conn, domain_free);
-}
-
-/* Network */
-#if HAVE_TYPE_VIRNETWORKPTR
-static void network_free(void *d) {
-    generic_free(Network, d);
-}
-
-static virNetworkPtr network_get(VALUE s) {
-    generic_get(Network, s);
-}
-
-static VALUE network_new(virNetworkPtr n, VALUE conn) {
-    return generic_new(c_network, n, conn, network_free);
-}
-#endif
-
-#if HAVE_TYPE_VIRSTORAGEPOOLPTR
-/* StoragePool */
-static void pool_free(void *d) {
-    generic_free(StoragePool, d);
-}
-
-static virStoragePoolPtr pool_get(VALUE s) {
-    generic_get(StoragePool, s);
-}
-
-static VALUE pool_new(virStoragePoolPtr n, VALUE conn) {
-    return generic_new(c_storage_pool, n, conn, pool_free);
-}
-#endif
-
-/* StorageVol */
-#if HAVE_TYPE_VIRSTORAGEVOLPTR
-static void vol_free(void *d) {
-    generic_free(StorageVol, d);
-}
- 
-static virStorageVolPtr vol_get(VALUE s) {
-    generic_get(StorageVol, s);
-}
- 
-static VALUE vol_new(virStorageVolPtr n, VALUE conn) {
-    return generic_new(c_storage_vol, n, conn, vol_free);
-}
-#endif
-
-/*
- * Code generating macros.
- *
- * We only generate function bodies, not the whole function
- * declaration.
- */
-
-/*
- * Generate a call to a virConnectNumOf... function. C is the Ruby VALUE
- * holding the connection and OBJS is a token indicating what objects to
- * get the number of, e.g. 'Domains'
- */
-#define gen_conn_num_of(c, objs)                                        \
-    do {                                                                \
-        int result;                                                     \
-        virConnectPtr conn = connect_get(c);                            \
-                                                                        \
-        result = virConnectNumOf##objs(conn);                           \
-        _E(result < 0, create_error(e_RetrieveError, "virConnectNumOf" # objs, "", conn));                \
-                                                                        \
-        return INT2NUM(result);                                         \
-    } while(0)
-
-/*
- * Generate a call to a virConnectList... function. S is the Ruby VALUE
- * holding the connection and OBJS is a token indicating what objects to
- * get the number of, e.g. 'Domains' The list function must return an array
- * of strings, which is returned as a Ruby array
- */
-#define gen_conn_list_names(s, objs)                                    \
-    do {                                                                \
-        int i, r, num;                                                  \
-        char **names;                                                   \
-        virConnectPtr conn = connect_get(s);                            \
-        VALUE result;                                                   \
-                                                                        \
-        num = virConnectNumOf##objs(conn);                              \
-        _E(num < 0, create_error(e_RetrieveError, "virConnectNumOf" # objs, "", conn));   \
-                                                                        \
-        names = ALLOC_N(char *, num);                                   \
-        r = virConnectList##objs(conn, names, num);                     \
-        if (r < 0) {                                                    \
-            free(names);                                                \
-            _E(r < 0, create_error(e_RetrieveError, "virConnectList" # objs, "", conn));  \
-        }                                                               \
-                                                                        \
-        result = rb_ary_new2(num);                                      \
-        for (i=0; i<num; i++) {                                         \
-            rb_ary_push(result, rb_str_new2(names[i]));                 \
-            free(names[i]);                                             \
-        }                                                               \
-        free(names);                                                    \
-        return result;                                                  \
-    } while(0)
-
-/* Generate a call to a function FUNC which returns an int error, where -1
- * indicates error and 0 success. The Ruby function will return Qnil on
- * success and throw an exception on error.
- */
-#define gen_call_void(func, conn, args...)                              \
-    do {                                                                \
-        int _r_##func;                                                  \
-        _r_##func = func(args);                                         \
-        _E(_r_##func < 0, create_error(e_Error, #func, "", conn));      \
-        return Qnil;                                                    \
-    } while(0)
-
-/* Generate a call to a function FUNC which returns a string. The Ruby
- * function will return the string on success and throw an exception on
- * error. The string returned by FUNC is freed if dealloc is true.
- */
-#define gen_call_string(func, conn, dealloc, args...)                   \
-    do {                                                                \
-        const char *str;                                                \
-        VALUE result;                                                   \
-                                                                        \
-        str = func(args);                                               \
-        _E(str == NULL, create_error(e_Error, # func, "", conn));       \
-                                                                        \
-        result = rb_str_new2(str);                                      \
-        if (dealloc)                                                    \
-            free((void *) str);                                         \
-        return result;                                                  \
-    } while(0)
-
-/* Generate a call to vir##KIND##Free and return Qnil. Set the the embedded
- * vir##KIND##Ptr to NULL. If that pointer is already NULL, do nothing.
- */
-#define gen_call_free(kind, s)                                          \
-    do {                                                                \
-        vir##kind##Ptr ptr;                                             \
-        Data_Get_Struct(s, vir##kind, ptr);                             \
-        if (ptr != NULL) {                                              \
-            int r = vir##kind##Free(ptr);                               \
-            _E(r < 0, create_error(e_Error, "vir" #kind "Free", "", conn(s))); \
-            DATA_PTR(s) = NULL;                                         \
-        }                                                               \
-        return Qnil;                                                    \
-    } while (0)
-
-/*
- * Module Libvirt
- */
 
 /*
  * call-seq:
- *   Libvirt::version(type) -> [ libvirt_version, type_version ]
+ *   Libvirt::version(type=nil) -> [ libvirt_version, type_version ]
  *
  * Call
  * +virGetVersion+[http://www.libvirt.org/html/libvirt-libvirt.html#virGetVersion]
- * to get the version of libvirt and of the hypervisor TYPE. Returns an
- * array with two entries of type Libvirt::Version.
- *
+ * to get the version of libvirt and of the hypervisor TYPE.
  */
-VALUE libvirt_version(VALUE m, VALUE t) {
+static VALUE libvirt_version(int argc, VALUE *argv, VALUE m) {
     unsigned long libVer;
-    const char *type = NULL;
+    VALUE type;
     unsigned long typeVer;
     int r;
-    VALUE result, argv[2];
+    VALUE result, rargv[2];
 
-    type = StringValueCStr(t);
-    r = virGetVersion(&libVer, type, &typeVer);
-    if (r < 0)
-        rb_raise(rb_eArgError, "Failed to get version for %s", type);
+    rb_scan_args(argc, argv, "01", &type);
+
+    r = virGetVersion(&libVer, get_string_or_nil(type), &typeVer);
+    _E(r < 0, create_error(rb_eArgError, "virGetVersion", NULL));
 
     result = rb_ary_new2(2);
-    argv[0] = rb_str_new2("libvirt");
-    argv[1] = ULONG2NUM(libVer);
-    rb_ary_push(result, rb_class_new_instance(2, argv, c_libvirt_version));
-    argv[0] = t;
-    argv[1] = ULONG2NUM(typeVer);
-    rb_ary_push(result, rb_class_new_instance(2, argv, c_libvirt_version));
+    rargv[0] = rb_str_new2("libvirt");
+    rargv[1] = ULONG2NUM(libVer);
+    rb_ary_push(result, rb_class_new_instance(2, rargv, c_libvirt_version));
+    rargv[0] = type;
+    rargv[1] = ULONG2NUM(typeVer);
+    rb_ary_push(result, rb_class_new_instance(2, rargv, c_libvirt_version));
     return result;
 }
 
-/*
- * call-seq:
- *   Libvirt::open(url) -> Libvirt::Connect
- *
- * Open a connection to URL with virConnectOpen[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectOpen]
- */
-VALUE libvirt_open(VALUE m, VALUE url) {
-    char *str = NULL;
-
-    if (url) {
-        str = StringValueCStr(url);
-        if (!str)
-            rb_raise(rb_eTypeError, "expected string");
-    }
-    virConnectPtr ptr = virConnectOpen(str);
-    if (!ptr)
-        rb_raise(e_ConnectionError, "Failed to open %s", str);
-    return connect_new(ptr);
-}
-
-/*
- * call-seq:
- *   Libvirt::openReadOnly(url) -> Libvirt::Connect
- *
- * Open a read-only connection to URL with
- * virConnectOpenReadOnly[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectOpenReadOnly]
- */
-VALUE libvirt_open_read_only(VALUE m, VALUE url) {
-    char *str = NULL;
-
-    if (url) {
-        str = StringValueCStr(url);
-        if (!str)
-            rb_raise(rb_eTypeError, "expected string");
-    }
-    virConnectPtr ptr = virConnectOpenReadOnly(str);
-    if (!ptr)
-        rb_raise(e_ConnectionError, "Failed to open %s readonly", str);
-    return connect_new(ptr);
-}
-
-/*
- * Class Libvirt::Connect
- */
-
-/*
- * call-seq:
- *   conn.close
- *
- * Close the connection
- */
-VALUE libvirt_conn_close(VALUE s) {
+static VALUE internal_open(int argc, VALUE *argv, VALUE m, int readonly)
+{
+    VALUE uri;
+    char *uri_c;
     virConnectPtr conn;
-    Data_Get_Struct(s, virConnect, conn);
-    if (conn) {
-        connect_close(conn);
-        DATA_PTR(s) = NULL;
+
+    rb_scan_args(argc, argv, "01", &uri);
+
+    uri_c = get_string_or_nil(uri);
+
+    if (readonly)
+        conn = virConnectOpenReadOnly(uri_c);
+    else
+        conn = virConnectOpen(uri_c);
+
+    _E(conn == NULL, create_error(e_ConnectionError,
+                                  readonly ? "virConnectOpenReadOnly" : "virConnectOpen",
+                                  NULL));
+
+    return connect_new(conn);
+}
+
+/*
+ * call-seq:
+ *   Libvirt::open(uri=nil) -> Libvirt::Connect
+ *
+ * Call
+ * +virConnectOpen+[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectOpen]
+ * to open a connection to a URL.
+ */
+static VALUE libvirt_open(int argc, VALUE *argv, VALUE m) {
+    return internal_open(argc, argv, m, 0);
+}
+
+/*
+ * call-seq:
+ *   Libvirt::open_read_only(uri=nil) -> Libvirt::Connect
+ *
+ * Call
+ * +virConnectOpenReadOnly+[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectOpenReadOnly]
+ * to open a read-only connection to a URL.
+ */
+static VALUE libvirt_open_read_only(int argc, VALUE *argv, VALUE m) {
+    return internal_open(argc, argv, m, 1);
+}
+
+#if HAVE_VIRCONNECTOPENAUTH
+static int libvirt_auth_callback_wrapper(virConnectCredentialPtr cred,
+                                         unsigned int ncred, void *cbdata) {
+    VALUE userdata;
+    VALUE newcred;
+    int i;
+    VALUE result;
+
+    userdata = (VALUE)cbdata;
+
+    if (!rb_block_given_p())
+        rb_raise(rb_eRuntimeError, "No block given, this should never happen!\n");
+
+    for (i = 0; i < ncred; i++) {
+        newcred = rb_hash_new();
+
+        rb_hash_aset(newcred, rb_str_new2("type"), INT2NUM(cred[i].type));
+        rb_hash_aset(newcred, rb_str_new2("prompt"),
+                     rb_str_new2(cred[i].prompt));
+        if (cred[i].challenge)
+            rb_hash_aset(newcred, rb_str_new2("challenge"),
+                         rb_str_new2(cred[i].challenge));
+        else
+            rb_hash_aset(newcred, rb_str_new2("challenge"), Qnil);
+        if (cred[i].defresult)
+            rb_hash_aset(newcred, rb_str_new2("defresult"),
+                         rb_str_new2(cred[i].defresult));
+        else
+            rb_hash_aset(newcred, rb_str_new2("defresult"), Qnil);
+        rb_hash_aset(newcred, rb_str_new2("result"), Qnil);
+        rb_hash_aset(newcred, rb_str_new2("userdata"), userdata);
+
+        result = rb_yield(newcred);
+        if (NIL_P(result)) {
+            cred[i].result = NULL;
+            cred[i].resultlen = 0;
+        }
+        else {
+            cred[i].result = strdup(StringValueCStr(result));
+            cred[i].resultlen = strlen(cred[i].result);
+        }
     }
+
+    return 0;
+}
+
+
+struct wrap_callout {
+    char *uri;
+    virConnectAuthPtr auth;
+    unsigned int flags;
+};
+
+static VALUE rb_open_auth_wrap(VALUE arg) {
+    struct wrap_callout *e = (struct wrap_callout *)arg;
+
+    return (VALUE)virConnectOpenAuth(e->uri, e->auth, e->flags);
+}
+
+static VALUE rb_num2int_wrap(VALUE arg) {
+    return NUM2INT(arg);
+}
+
+/*
+ * call-seq:
+ *   Libvirt::open_auth(uri=nil, credlist=nil, userdata=nil, flags=0) {|...| authentication block} -> Libvirt::Connect
+ *
+ * Call
+ * +virConnectOpenAuth+[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectOpenAuth]
+ * to open a connection to a libvirt URI, with a possible authentication block.
+ * If an authentication block is desired, then credlist should be an array that
+ * specifies which credentials the authentication block is willing to support;
+ * the full list is available at http://libvirt.org/html/libvirt-libvirt.html#virConnectCredentialType.
+ * If userdata is not nil and an authentication block is given, userdata will
+ * be passed unaltered into the authentication block.  The flags parameter
+ * controls how to open connection.  The only options currently available for
+ * flags are 0 for a read/write connection and Libvirt::CONNECT_RO for a
+ * read-only connection.
+ *
+ * If the credlist is not empty, and an authentication block is given, the
+ * authentication block will be called once for each credential necessary
+ * to complete the authentication.  The authentication block will be passed a
+ * single parameter, which is a hash of values containing information necessary
+ * to complete authentication.  This hash contains 5 elements:
+ *
+ * type - the type of credential to be examined
+ *
+ * prompt - a suggested prompt to show to the user
+ *
+ * challenge - any additional challenge information
+ *
+ * defresult - a default result to use if credentials could not be obtained
+ *
+ * userdata - the userdata passed into open_auth initially
+ *
+ * The authentication block should return the result of collecting the
+ * information; these results will then be sent to libvirt for authentication.
+ */
+static VALUE libvirt_open_auth(int argc, VALUE *argv, VALUE m) {
+    virConnectAuthPtr auth;
+    VALUE uri;
+    VALUE credlist;
+    VALUE userdata;
+    VALUE flags_val;
+    char *uri_c;
+    virConnectPtr conn = NULL;
+    unsigned int flags;
+    int auth_alloc;
+    int i;
+    VALUE tmp;
+    int exception = 0;
+    struct rb_ary_entry_arg args;
+    struct wrap_callout callargs;
+
+    rb_scan_args(argc, argv, "04", &uri, &credlist, &userdata, &flags_val);
+
+    /* handle the optional URI */
+    uri_c = get_string_or_nil(uri);
+
+    /* handle the optional flags */
+    if (NIL_P(flags_val))
+        flags = 0;
+    else
+        flags = NUM2UINT(flags_val);
+
+    if (rb_block_given_p()) {
+        auth = ALLOC(virConnectAuth);
+        auth_alloc = 1;
+
+        if (TYPE(credlist) == T_NIL)
+            auth->ncredtype = 0;
+        else if (TYPE(credlist) == T_ARRAY)
+            auth->ncredtype = RARRAY_LEN(credlist);
+        else
+            rb_raise(rb_eTypeError, "wrong argument type (expected Array or nil)");
+        auth->credtype = NULL;
+        if (auth->ncredtype > 0) {
+            /* we don't use ALLOC_N here because that can throw an exception,
+             * and leak the auth pointer.  Instead we use normal malloc
+             * (which has a slightly higher chance of returning NULL), and
+             * then properly cleanup if it fails
+             */
+            auth->credtype = malloc(sizeof(int) * auth->ncredtype);
+            if (auth->credtype == NULL) {
+                xfree(auth);
+                rb_memerror();
+            }
+            for (i = 0; i < auth->ncredtype; i++) {
+                args.arr = credlist;
+                args.elem = i;
+                tmp = rb_protect(rb_ary_entry_wrap, (VALUE)&args, &exception);
+                if (exception)
+                    goto do_cleanup;
+
+                auth->credtype[i] = rb_protect(rb_num2int_wrap, tmp,
+                                               &exception);
+                if (exception)
+                    goto do_cleanup;
+            }
+        }
+
+        auth->cb = libvirt_auth_callback_wrapper;
+        auth->cbdata = (void *)userdata;
+    }
+    else {
+        auth = virConnectAuthPtrDefault;
+        auth_alloc = 0;
+    }
+
+    callargs.uri = uri_c;
+    callargs.auth = auth;
+    callargs.flags = flags;
+
+    conn = (virConnectPtr)rb_protect(rb_open_auth_wrap, (VALUE)&callargs,
+                                     &exception);
+
+do_cleanup:
+    if (auth_alloc) {
+        free(auth->credtype);
+        xfree(auth);
+    }
+
+    if (exception)
+        rb_jump_tag(exception);
+
+    _E(conn == NULL, create_error(e_ConnectionError, "virConnectOpenAuth",
+                                  NULL));
+
+    return connect_new(conn);
+}
+#endif
+
+#if HAVE_VIREVENTREGISTERIMPL
+static VALUE add_handle, update_handle, remove_handle;
+static VALUE add_timeout, update_timeout, remove_timeout;
+
+/*
+ * call-seq:
+ *   Libvirt::event_invoke_handle_callback(handle, fd, events, opaque) -> Qnil
+ *
+ * Unlike most of the other functions in the ruby-libvirt bindings, this one
+ * does not directly correspond to a libvirt API function.  Instead, this
+ * module method (and event_invoke_timeout_callback) are meant to be called
+ * when there is an event of interest to libvirt on one of the file descriptors
+ * that libvirt uses.  The application is notified of the file descriptors
+ * that libvirt uses via the callbacks from Libvirt::event_register_impl.  When
+ * there is an event of interest, the application must call
+ * event_invoke_timeout_callback to ensure proper operation.
+ *
+ * Libvirt::event_invoke_handle_callback takes 4 arguments:
+ *
+ * handle
+ *          an application specific handle ID.  This can be any integer, but
+ *          must be unique from all other libvirt handles in the application.
+ * fd
+ *          the file descriptor of interest.  This was given to the application
+ *          as a callback to add_handle of Libvirt::event_register_impl
+ * events
+ *          the events that have occured on the fd.  Note that the events are
+ *          libvirt specific, and are some combination of
+ *          Libvirt::EVENT_HANDLE_READABLE, Libvirt::EVENT_HANDLE_WRITABLE,
+ *          Libvirt::EVENT_HANDLE_ERROR, Libvirt::EVENT_HANDLE_HANGUP.  To
+ *          notify libvirt of more than one event at a time, these values should
+ *          be logically OR'ed together.
+ * opaque
+ *          the opaque data passed from libvirt during the
+ *          Libvirt::event_register_impl add_handle callback.  To ensure proper
+ *          operation this data must be passed through to
+ *          event_invoke_handle_callback without modification.
+ */
+static VALUE libvirt_event_invoke_handle_callback(VALUE m, VALUE handle,
+                                                  VALUE fd, VALUE events,
+                                                  VALUE opaque) {
+    virEventHandleCallback cb;
+    void *op;
+    VALUE libvirt_cb;
+    VALUE libvirt_opaque;
+
+    if (TYPE(opaque) != T_HASH)
+        rb_raise(rb_eTypeError,
+                 "wrong event callback argument type (expected Hash)");
+
+    libvirt_cb = rb_hash_aref(opaque, rb_str_new2("libvirt_cb"));
+
+    /* This is equivalent to Data_Get_Struct; I reproduce it here because
+     * I don't want the additional type-cast that Data_Get_Struct does
+     */
+    Check_Type(libvirt_cb, T_DATA);
+    cb = DATA_PTR(libvirt_cb);
+
+    if (cb) {
+        libvirt_opaque = rb_hash_aref(opaque, rb_str_new2("opaque"));
+        Data_Get_Struct(libvirt_opaque, void *, op);
+        cb(NUM2INT(handle), NUM2INT(fd), NUM2INT(events), op);
+    }
+
     return Qnil;
 }
 
 /*
  * call-seq:
- *   conn.closed?
+ *   Libvirt::event_invoke_timeout_callback(timer, opaque) -> Qnil
  *
- * Return +true+ if the connection is closed, +false+ if it is open
- */
-VALUE libvirt_conn_closed_p(VALUE s) {
-    virConnectPtr conn;
-    Data_Get_Struct(s, virConnect, conn);
-    return (conn==NULL) ? Qtrue : Qfalse;
-}
-
-/*
- * call-seq:
- *   conn.type -> string
+ * Unlike most of the other functions in the ruby-libvirt bindings, this one
+ * does not directly correspond to a libvirt API function.  Instead, this
+ * module method (and event_invoke_handle_callback) are meant to be called
+ * when there is a timeout of interest to libvirt.  The application is
+ * notified of the timers that libvirt uses via the callbacks from
+ * Libvirt::event_register_impl.  When a timeout expires, the application must
+ * call event_invoke_timeout_callback to ensure proper operation.
  *
- * Call +virConnectGetType+[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectGetType]
- */
-VALUE libvirt_conn_type(VALUE s) {
-    gen_call_string(virConnectGetType, connect_get(s), 0,
-                    connect_get(s));
-}
-
-/*
- * call-seq:
- *   conn.version -> fixnum
+ * Libvirt::event_invoke_timeout_callback takes 2 arguments:
  *
- * Call +virConnectGetVersion+[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectGetVersion]
- */
-VALUE libvirt_conn_version(VALUE s) {
-    int r;
-    unsigned long v;
-    virConnectPtr conn = connect_get(s);
-
-    r = virConnectGetVersion(conn, &v);
-    _E(r < 0, create_error(e_RetrieveError, "virConnectGetVersion", "", conn));
-
-    return ULONG2NUM(v);
-}
-
-/*
- * call-seq:
- *   conn.hostname -> string
- *
- * Call +virConnectGetHostname+[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectGetHostname]
- */
-VALUE libvirt_conn_hostname(VALUE s) {
-    gen_call_string(virConnectGetHostname, connect_get(s), 1,
-                    connect_get(s));
-}
-
-/*
- * Call +virConnectGetURI+[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectGetURI]
- */
-VALUE libvirt_conn_uri(VALUE s) {
-    virConnectPtr conn = connect_get(s);
-    gen_call_string(virConnectGetURI, conn, 1,
-                    conn);
-}
-
-/*
- * Call +virConnectGetMaxVcpus+[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectGetMaxVcpus]
- */
-VALUE libvirt_conn_max_vcpus(VALUE s, VALUE type) {
-    int result;
-    virConnectPtr conn = connect_get(s);
-
-    result = virConnectGetMaxVcpus(conn, StringValueCStr(type));
-    _E(result < 0, create_error(e_RetrieveError, "virConnectGetMaxVcpus", "", conn));
-
-    return INT2NUM(result);
-}
-
-/*
- * Call +virNodeInfo+[http://www.libvirt.org/html/libvirt-libvirt.html#virNodeGetInfo]
- */
-VALUE libvirt_conn_node_get_info(VALUE s){
-    int r;
-    virConnectPtr conn = connect_get(s);
-    virNodeInfo nodeinfo;
-    VALUE result;
-    VALUE modelstr;
-
-    r = virNodeGetInfo(conn, &nodeinfo);
-    _E(r < 0, create_error(e_RetrieveError, "virNodeGetInfo", "", conn));
-
-    modelstr = rb_str_new2(nodeinfo.model);
-
-    result = rb_class_new_instance(0, NULL, c_node_info);
-    rb_iv_set(result, "@model", modelstr);
-    rb_iv_set(result, "@memory", ULONG2NUM(nodeinfo.memory));
-    rb_iv_set(result, "@cpus", UINT2NUM(nodeinfo.cpus));
-    rb_iv_set(result, "@mhz", UINT2NUM(nodeinfo.mhz));
-    rb_iv_set(result, "@nodes", UINT2NUM(nodeinfo.nodes));
-    rb_iv_set(result, "@sockets", UINT2NUM(nodeinfo.sockets));
-    rb_iv_set(result, "@cores", UINT2NUM(nodeinfo.cores));
-    rb_iv_set(result, "@threads", UINT2NUM(nodeinfo.threads));
-    return result;
-}
-
-/*
- * Call +virConnectGetCapabilities+[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectGetCapabilities]
- */
-VALUE libvirt_conn_capabilities(VALUE s) {
-    virConnectPtr conn = connect_get(s);
-    gen_call_string(virConnectGetCapabilities, conn, 1,
-                    conn);
-}
-
-/*
- * Call +virConnectNumOfDomains+[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectNumOfDomains]
- */
-VALUE libvirt_conn_num_of_domains(VALUE s) {
-    gen_conn_num_of(s, Domains);
-}
-
-/*
- * Call +virConnectListDomains+[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectListDomains]
- */
-VALUE libvirt_conn_list_domains(VALUE s) {
-    int i, r, num, *ids;
-    virConnectPtr conn = connect_get(s);
-    VALUE result;
-
-    num = virConnectNumOfDomains(conn);
-    _E(num < 0, create_error(e_RetrieveError, "virConnectNumOfDomains", "", conn));
-
-    ids = ALLOC_N(int, num);
-    r = virConnectListDomains(conn, ids, num);
-    if (r < 0) {
-        free(ids);
-        _E(r < 0, create_error(e_RetrieveError, "virConnectListDomains", "", conn));
-    }
-
-    result = rb_ary_new2(num);
-    for (i=0; i<num; i++) {
-        rb_ary_push(result, INT2NUM(ids[i]));
-    }
-    free(ids);
-    return result;
-}
-
-/*
- * Call +virConnectNumOfDefinedDomains+[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectNumOfDefinedDomains]
- */
-VALUE libvirt_conn_num_of_defined_domains(VALUE s) {
-    gen_conn_num_of(s, DefinedDomains);
-}
-
-/*
- * Call +virConnectListDefinedDomains+[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectListDefinedDomains]
- */
-VALUE libvirt_conn_list_defined_domains(VALUE s) {
-    gen_conn_list_names(s, DefinedDomains);
-}
-
-/*
- * Call +virConnectNumOfNetworks+[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectNumOfNetworks]
- */
-VALUE libvirt_conn_num_of_networks(VALUE s) {
-    gen_conn_num_of(s, Networks);
-}
-
-/*
- * Call +virConnectListNetworks+[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectListNetworks]
- */
-VALUE libvirt_conn_list_networks(VALUE s) {
-    gen_conn_list_names(s, Networks);
-}
-
-/*
- * Call +virConnectNumOfDefinedNetworks+[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectNumOfDefinedNetworks]
- */
-VALUE libvirt_conn_num_of_defined_networks(VALUE s) {
-    gen_conn_num_of(s, DefinedNetworks);
-}
-
-/*
- * Call +virConnectListDefinedNetworks+[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectListDefinedNetworks]
- */
-VALUE libvirt_conn_list_defined_networks(VALUE s) {
-    gen_conn_list_names(s, DefinedNetworks);
-}
-
-#if HAVE_TYPE_VIRSTORAGEPOOLPTR
-/*
- * Call +virConnectListStoragePools+[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectListStoragePools]
- */
-VALUE libvirt_conn_list_storage_pools(VALUE s) {
-    gen_conn_list_names(s, StoragePools);
-}
-
-/*
- * Call +virConnectNumOfStoragePools+[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectNumOfStoragePools]
- */
-VALUE libvirt_conn_num_of_storage_pools(VALUE s) {
-    gen_conn_num_of(s, StoragePools);
-}
-
-/*
- * Call +virConnectListDefinedStoragePools+[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectListDefinedStoragePools]
- */
-VALUE libvirt_conn_list_defined_storage_pools(VALUE s) {
-    gen_conn_list_names(s, DefinedStoragePools);
-}
-
-/*
- * Call +virConnectNumOfDefinedStoragePools+[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectNumOfDefinedStoragePools]
- */
-VALUE libvirt_conn_num_of_defined_storage_pools(VALUE s) {
-    gen_conn_num_of(s, DefinedStoragePools);
-}
-#endif
-
-/*
- * Class Libvirt::Domain
- */
-VALUE libvirt_dom_migrate(VALUE s, VALUE dconn, VALUE flags,
-                           VALUE dname, VALUE uri, VALUE bandwidth) {
-    virDomainPtr ddom = NULL;
-
-    ddom = virDomainMigrate(domain_get(s), conn(dconn), NUM2UINT(flags),
-                            StringValueCStr(dname), StringValueCStr(uri),
-                            NUM2UINT(bandwidth));
-
-    _E(ddom == NULL,
-       create_error(e_Error, "virDomainMigrate", "", conn(dconn)));
-
-    return domain_new(ddom, dconn);
-}
-
-/*
- * Call +virDomainShutdown+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainShutdown]
- */
-VALUE libvirt_dom_shutdown(VALUE s) {
-    gen_call_void(virDomainShutdown, conn(s),
-                  domain_get(s));
-}
-
-/*
- * Call +virDomainReboot+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainReboot]
- */
-VALUE libvirt_dom_reboot(int argc, VALUE *argv, VALUE s) {
-    VALUE flags;
-
-    rb_scan_args(argc, argv, "01", &flags);
-
-    if (NIL_P(flags))
-        flags = INT2FIX(0);
-
-    gen_call_void(virDomainReboot, conn(s), 
-                  domain_get(s), NUM2UINT(flags));
-}
-
-/*
- * Call +virDomainDestroy+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainDestroy]
- */
-VALUE libvirt_dom_destroy(VALUE s) {
-    gen_call_void(virDomainDestroy, conn(s),
-                  domain_get(s));
-}
-
-/*
- * Call +virDomainSuspend+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainSuspend]
- */
-VALUE libvirt_dom_suspend(VALUE s) {
-    gen_call_void(virDomainSuspend, conn(s),
-                  domain_get(s));
-}
-
-/*
- * Call +virDomainResume+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainResume]
- */
-VALUE libvirt_dom_resume(VALUE s) {
-    gen_call_void(virDomainResume, conn(s),
-                  domain_get(s));
-}
-
-/*
- * Call +virDomainSave+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainSave]
- */
-VALUE libvirt_dom_save(VALUE s, VALUE to) {
-    gen_call_void(virDomainSave, conn(s),
-                  domain_get(s), StringValueCStr(to));
-}
-
-/*
- * Call +virDomainCoreDump+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainCoreDump]
- */
-VALUE libvirt_dom_core_dump(int argc, VALUE *argv, VALUE s) {
-    VALUE to, flags;
-
-    rb_scan_args(argc, argv, "11", &to, &flags);
-
-    if (NIL_P(flags))
-        flags = INT2FIX(0);
-
-    gen_call_void(virDomainCoreDump, conn(s),
-                  domain_get(s), StringValueCStr(to), NUM2UINT(flags));
-}
-
-/*
- * Call +virDomainRestore+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainRestore]
- */
-VALUE libvirt_dom_s_restore(VALUE klass, VALUE c, VALUE from) {
-    gen_call_void(virDomainRestore, connect_get(c),
-                  connect_get(c), StringValueCStr(from));
-}
-
-/*
- * call-seq:
- *   domain.info -> Libvirt::Domain::Info
- *
- * Call +virDomainGetInfo+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainGetInfo]
- */
-VALUE libvirt_dom_info(VALUE s) {
-    virDomainPtr dom = domain_get(s);
-    virDomainInfo info;
-    int r;
-    VALUE result;
-
-    r = virDomainGetInfo(dom, &info);
-    _E(r < 0, create_error(e_RetrieveError, "virDomainGetInfo", "", conn(s)));
-
-    result = rb_class_new_instance(0, NULL, c_domain_info);
-    rb_iv_set(result, "@state", CHR2FIX(info.state));
-    rb_iv_set(result, "@max_mem", ULONG2NUM(info.maxMem));
-    rb_iv_set(result, "@memory", ULONG2NUM(info.memory));
-    rb_iv_set(result, "@nr_virt_cpu", INT2FIX((int) info.nrVirtCpu));
-    rb_iv_set(result, "@cpu_time", ULL2NUM(info.cpuTime));
-    return result;
-}
-
-
-/*
- * Call +virDomainGetName+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainGetName]
- */
-VALUE libvirt_dom_name(VALUE s) {
-    gen_call_string(virDomainGetName, conn(s), 0,
-                    domain_get(s));
-}
-
-/*
- * Call +virDomainGetID+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainGetID]
- */
-VALUE libvirt_dom_id(VALUE s) {
-    virDomainPtr dom = domain_get(s);
-    unsigned int id;
-
-    id = virDomainGetID(dom);
-    _E(id < 0, create_error(e_RetrieveError, "virDomainGetID", "", conn(s)));
-
-    return UINT2NUM(id);
-}
-
-/*
- * Call +virDomainGetUUIDString+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainGetUUIDString]
- */
-VALUE libvirt_dom_uuid(VALUE s) {
-    virDomainPtr dom = domain_get(s);
-    char uuid[VIR_UUID_STRING_BUFLEN];
-    int r;
-
-    r = virDomainGetUUIDString(dom, uuid);
-    _E(r < 0, create_error(e_RetrieveError, "virDomainGetUUIDString", "", conn(s)));
-
-    return rb_str_new2((char *) uuid);
-}
-
-/*
- * Call +virDomainGetOSType+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainGetOSType]
- */
-VALUE libvirt_dom_os_type(VALUE s) {
-    gen_call_string(virDomainGetOSType, conn(s), 1,
-                    domain_get(s));
-}
-
-/*
- * Call +virDomainGetMaxMemory+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainGetMaxMemory]
- */
-VALUE libvirt_dom_max_memory(VALUE s) {
-    virDomainPtr dom = domain_get(s);
-    unsigned long max_memory;
-
-    max_memory = virDomainGetMaxMemory(dom);
-    _E(max_memory == 0, create_error(e_RetrieveError, "virDomainGetMaxMemory", "", conn(s)));
-
-    return ULONG2NUM(max_memory);
-}
-
-/*
- * Call +virDomainSetMaxMemory+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainSetMaxMemory]
- */
-VALUE libvirt_dom_max_memory_set(VALUE s, VALUE max_memory) {
-    virDomainPtr dom = domain_get(s);
-    int r;
-
-    r = virDomainSetMaxMemory(dom, NUM2ULONG(max_memory));
-    _E(r < 0, create_error(e_DefinitionError, "virDomainSetMaxMemory", "", conn(s)));
-
-    return ULONG2NUM(max_memory);
-}
-
-/*
- * Call +virDomainSetMemory+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainSetMemory]
- */
-VALUE libvirt_dom_memory_set(VALUE s, VALUE memory) {
-    virDomainPtr dom = domain_get(s);
-    int r;
-
-    r = virDomainSetMemory(dom, NUM2ULONG(memory));
-    _E(r < 0, create_error(e_DefinitionError, "virDomainSetMemory", "", conn(s)));
-
-    return ULONG2NUM(memory);
-}
-
-/*
- * Call +virDomainGetMaxVcpus+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainGetMaxVcpus]
- */
-VALUE libvirt_dom_max_vcpus(VALUE s) {
-    virDomainPtr dom = domain_get(s);
-    int vcpus;
-
-    vcpus = virDomainGetMaxVcpus(dom);
-    _E(vcpus < 0, create_error(e_RetrieveError, "virDomainGetMaxVcpus", "", conn(s)));
-
-    return INT2NUM(vcpus);
-}
-
-
-/*
- * Call +virDomainSetVcpus+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainSetVcpus]
- */
-VALUE libvirt_dom_vcpus_set(VALUE s, VALUE nvcpus) {
-    virDomainPtr dom = domain_get(s);
-    int r;
-
-    r = virDomainSetVcpus(dom, NUM2UINT(nvcpus));
-    _E(r < 0, create_error(e_DefinitionError, "virDomainSetVcpus", "", conn(s)));
-
-    return r;
-}
-
-/*
- * Call +virDomainPinVcpu+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainPinVcpu]
- */
-VALUE libvirt_dom_pin_vcpu(VALUE s, VALUE vcpu, VALUE cpulist) {
-    virDomainPtr dom = domain_get(s);
-    int r, i, len, maplen;
-    unsigned char *cpumap;
-    virNodeInfo nodeinfo;
-    virConnectPtr c = conn(s);
-
-    r = virNodeGetInfo(c, &nodeinfo);
-    _E(r < 0, create_error(e_RetrieveError, "virNodeGetInfo", "", c));
-
-    maplen = VIR_CPU_MAPLEN(nodeinfo.cpus);
-    cpumap = ALLOC_N(unsigned char, maplen);
-    MEMZERO(cpumap, unsigned char, maplen);
-
-    len = RARRAY(cpulist)->len;
-    for(i = 0; i < len; i++) {
-        VALUE e = rb_ary_entry(cpulist, i);
-        VIR_USE_CPU(cpumap, NUM2UINT(e));
-    }
-
-    r = virDomainPinVcpu(dom, NUM2UINT(vcpu), cpumap, maplen);
-    free(cpumap);
-    _E(r < 0, create_error(e_RetrieveError, "virDomainPinVcpu", "", c));
-
-    return r;
-}
-
-
-/*
- * Call +virDomainGetXMLDesc+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainGetXMLDesc]
- */
-VALUE libvirt_dom_xml_desc(int argc, VALUE *argv, VALUE s) {
-    VALUE flags;
-
-    rb_scan_args(argc, argv, "01", &flags);
-
-    if (NIL_P(flags))
-        flags = INT2FIX(0);
-
-    gen_call_string(virDomainGetXMLDesc, conn(s), 1,
-                    domain_get(s), 0);
-}
-
-/*
- * Call +virDomainUndefine+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainUndefine]
- */
-VALUE libvirt_dom_undefine(VALUE s) {
-    gen_call_void(virDomainUndefine, conn(s),
-                  domain_get(s));
-}
-
-/*
- * Call +virDomainCreate+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainCreate]
- */
-VALUE libvirt_dom_create(VALUE s) {
-    gen_call_void(virDomainCreate, conn(s),
-                  domain_get(s));
-}
-
-/*
- * Call +virDomainGetAutostart+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainGetAutostart]
- */
-VALUE libvirt_dom_autostart(VALUE s){
-    virDomainPtr dom = domain_get(s);
-    int r, autostart;
-
-    r = virDomainGetAutostart(dom, &autostart);
-    _E(r < 0, create_error(e_RetrieveError, "virDomainAutostart", "", conn(s)));
-
-    return autostart ? Qtrue : Qfalse;
-}
-
-/*
- * Call +virDomainSetAutostart+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainSetAutostart]
- */
-VALUE libvirt_dom_autostart_set(VALUE s, VALUE autostart) {
-    gen_call_void(virDomainSetAutostart, conn(s),
-                  domain_get(s), RTEST(autostart) ? 1 : 0);
-}
-
-/*
- * Call +virDomainCreateLinux+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainCreateLinux]
- */
-VALUE libvirt_conn_create_linux(int argc, VALUE *argv, VALUE c) {
-    virDomainPtr dom;
-    virConnectPtr conn = connect_get(c);
-    char *xmlDesc;
-    VALUE flags, xml;
-
-    rb_scan_args(argc, argv, "11", &xml, &flags);
-
-    if (NIL_P(flags))
-        flags = INT2FIX(0);
-
-    xmlDesc = StringValueCStr(xml);
-
-    dom = virDomainCreateLinux(conn, xmlDesc, NUM2UINT(flags));
-    _E(dom == NULL, create_error(e_Error, "virDomainCreateLinux", "", conn));
-
-    return domain_new(dom, c);
-}
-
-/*
- * Call +virDomainLookupByName+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainLookupByName]
- */
-VALUE libvirt_conn_lookup_domain_by_name(VALUE c, VALUE name) {
-    virDomainPtr dom;
-    virConnectPtr conn = connect_get(c);
-
-    dom = virDomainLookupByName(conn, StringValueCStr(name));
-    _E(dom == NULL, create_error(e_RetrieveError, "virDomainLookupByName", "", conn));
-
-    return domain_new(dom, c);
-}
-
-/*
- * Call +virDomainLookupByID+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainLookupByID]
- */
-VALUE libvirt_conn_lookup_domain_by_id(VALUE c, VALUE id) {
-    virDomainPtr dom;
-    virConnectPtr conn = connect_get(c);
-
-    dom = virDomainLookupByID(conn, NUM2INT(id));
-    _E(dom == NULL, create_error(e_RetrieveError, "virDomainLookupByID", "", conn));
-
-    return domain_new(dom, c);
-}
-
-/*
- * Call +virDomainLookupByUUIDString+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainLookupByUUIDString]
- */
-VALUE libvirt_conn_lookup_domain_by_uuid(VALUE c, VALUE uuid) {
-    virDomainPtr dom;
-    virConnectPtr conn = connect_get(c);
-
-    dom = virDomainLookupByUUIDString(conn, StringValueCStr(uuid));
-    _E(dom == NULL, create_error(e_RetrieveError, "virDomainLookupByUUID", "", conn));
-
-    return domain_new(dom, c);
-}
-
-/*
- * Call +virDomainDefineXML+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainDefineXML]
- */
-VALUE libvirt_conn_define_domain_xml(VALUE c, VALUE xml) {
-    virDomainPtr dom;
-    virConnectPtr conn = connect_get(c);
-
-    dom = virDomainDefineXML(conn, StringValueCStr(xml));
-    _E(dom == NULL, create_error(e_DefinitionError, "virDomainDefineXML", "", conn));
-
-    return domain_new(dom, c);
-}
-
-/*
- * Call +virDomainFree+[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainFree]
- */
-VALUE libvirt_dom_free(VALUE s) {
-    gen_call_free(Domain, s);
-}
-
-/*
- * Class Libvirt::Network
- */
-
-#if HAVE_TYPE_VIRNETWORKPTR
-/*
- * Call +virNetworkLookupByName+[http://www.libvirt.org/html/libvirt-libvirt.html#virNetworkLookupByName]
- */
-VALUE libvirt_conn_lookup_network_by_name(VALUE c, VALUE name) {
-    virNetworkPtr netw;
-    virConnectPtr conn = connect_get(c);
-
-    netw = virNetworkLookupByName(conn, StringValueCStr(name));
-    _E(netw == NULL, create_error(e_RetrieveError, "virNetworkLookupByName", "", conn));
-
-    return network_new(netw, c);
-}
-
-/*
- * Call +virNetworkLookupByUUIDString+[http://www.libvirt.org/html/libvirt-libvirt.html#virNetworkLookupByUUIDString]
- */
-VALUE libvirt_conn_lookup_network_by_uuid(VALUE c, VALUE uuid) {
-    virNetworkPtr netw;
-    virConnectPtr conn = connect_get(c);
-
-    netw = virNetworkLookupByUUIDString(conn, StringValueCStr(uuid));
-    _E(netw == NULL, create_error(e_RetrieveError, "virNetworkLookupByUUID", "", conn));
-
-    return network_new(netw, c);
-}
-
-/*
- * Call +virNetworkCreateXML+[http://www.libvirt.org/html/libvirt-libvirt.html#virNetworkCreateXML]
- */
-VALUE libvirt_conn_create_network_xml(VALUE c, VALUE xml) {
-    virNetworkPtr netw;
-    virConnectPtr conn = connect_get(c);
-    char *xmlDesc;
-
-    xmlDesc = StringValueCStr(xml);
-
-    netw = virNetworkCreateXML(conn, xmlDesc);
-    _E(netw == NULL, create_error(e_Error, "virNetworkCreateXML", "", conn));
-
-    return network_new(netw, c);
-}
-
-/*
- * Call +virNetworkDefineXML+[http://www.libvirt.org/html/libvirt-libvirt.html#virNetworkDefineXML]
- */
-VALUE libvirt_conn_define_network_xml(VALUE c, VALUE xml) {
-    virNetworkPtr netw;
-    virConnectPtr conn = connect_get(c);
-
-    netw = virNetworkDefineXML(conn, StringValueCStr(xml));
-    _E(netw == NULL, create_error(e_DefinitionError, "virNetworkDefineXML", "", conn));
-
-    return network_new(netw, c);
-}
-#endif
-
-#if HAVE_TYPE_VIRNETWORKPTR
-/*
- * Call +virNetworkUndefine+[http://www.libvirt.org/html/libvirt-libvirt.html#virNetworkUndefine]
- */
-VALUE libvirt_netw_undefine(VALUE s) {
-    gen_call_void(virNetworkUndefine, conn(s),
-                  network_get(s));
-}
-
-/*
- * Call +virNetworkCreate+[http://www.libvirt.org/html/libvirt-libvirt.html#virNetworkCreate]
- */
-VALUE libvirt_netw_create(VALUE s) {
-    gen_call_void(virNetworkCreate, conn(s),
-                  network_get(s));
-}
-
-/*
- * Call +virNetworkDestroy+[http://www.libvirt.org/html/libvirt-libvirt.html#virNetworkDestroy]
- */
-VALUE libvirt_netw_destroy(VALUE s) {
-    gen_call_void(virNetworkDestroy, conn(s),
-                  network_get(s));
-}
-
-/*
- * Call +virNetworkGetName+[http://www.libvirt.org/html/libvirt-libvirt.html#virNetworkGetName]
- */
-VALUE libvirt_netw_name(VALUE s) {
-    gen_call_string(virNetworkGetName, conn(s), 0,
-                    network_get(s));
-}
-
-/*
- * Call +virNetworkGetUUIDString+[http://www.libvirt.org/html/libvirt-libvirt.html#virNetworkGetUUIDString]
- */
-VALUE libvirt_netw_uuid(VALUE s) {
-    virNetworkPtr netw = network_get(s);
-    char uuid[VIR_UUID_STRING_BUFLEN];
-    int r;
-
-    r = virNetworkGetUUIDString(netw, uuid);
-    _E(r < 0, create_error(e_RetrieveError, "virNetworkGetUUIDString", "", conn(s)));
-
-    return rb_str_new2((char *) uuid);
-}
-
-/*
- * Call +virNetworkGetXMLDesc+[http://www.libvirt.org/html/libvirt-libvirt.html#virNetworkGetXMLDesc]
- */
-VALUE libvirt_netw_xml_desc(int argc, VALUE *argv, VALUE s) {
-    VALUE flags;
-
-    rb_scan_args(argc, argv, "01", &flags);
-
-    if (NIL_P(flags))
-        flags = INT2FIX(0);
-
-    gen_call_string(virNetworkGetXMLDesc, conn(s), 1,
-                    network_get(s), NUM2UINT(flags));
-}
-
-/*
- * Call +virNetworkGetBridgeName+[http://www.libvirt.org/html/libvirt-libvirt.html#virNetworkGetBridgeName]
- */
-VALUE libvirt_netw_bridge_name(VALUE s) {
-    gen_call_string(virNetworkGetBridgeName, conn(s), 1,
-                    network_get(s));
-}
-
-/*
- * Call +virNetworkGetAutostart+[http://www.libvirt.org/html/libvirt-libvirt.html#virNetworkGetAutostart]
- */
-VALUE libvirt_netw_autostart(VALUE s){
-    virNetworkPtr netw = network_get(s);
-    int r, autostart;
-
-    r = virNetworkGetAutostart(netw, &autostart);
-    _E(r < 0, create_error(e_RetrieveError, "virNetworkAutostart", "", conn(s)));
-
-    return autostart ? Qtrue : Qfalse;
-}
-
-/*
- * Call +virNetworkSetAutostart+[http://www.libvirt.org/html/libvirt-libvirt.html#virNetworkSetAutostart]
- */
-VALUE libvirt_netw_autostart_set(VALUE s, VALUE autostart) {
-    gen_call_void(virNetworkSetAutostart, conn(s),
-                  network_get(s), RTEST(autostart) ? 1 : 0);
-}
-
-/*
- * Call +virNetworkFree+[http://www.libvirt.org/html/libvirt-libvirt.html#virNetworkFree]
- */
-VALUE libvirt_netw_free(VALUE s) {
-    gen_call_free(Network, s);
-}
-#endif
-
-/*
- * Libvirt::StoragePool
- */
-
-#if HAVE_TYPE_VIRSTORAGEPOOLPTR
-/*
- * Call +virStoragePoolLookupByName+[http://www.libvirt.org/html/libvirt-libvirt.html#virStoragePoolLookupByName]
- */
-VALUE libvirt_conn_lookup_pool_by_name(VALUE c, VALUE name) {
-    virStoragePoolPtr pool;
-    virConnectPtr conn = connect_get(c);
-
-    pool = virStoragePoolLookupByName(conn, StringValueCStr(name));
-    _E(pool == NULL, create_error(e_RetrieveError, "virStoragePoolLookupByName", "", conn));
-
-    return pool_new(pool, c);
-}
-
-/*
- * Call +virStoragePoolLookupByUUIDString+[http://www.libvirt.org/html/libvirt-libvirt.html#virStoragePoolLookupByUUIDString]
- */
-VALUE libvirt_conn_lookup_pool_by_uuid(VALUE c, VALUE uuid) {
-    virStoragePoolPtr pool;
-    virConnectPtr conn = connect_get(c);
-
-    pool = virStoragePoolLookupByUUIDString(conn, StringValueCStr(uuid));
-    _E(pool == NULL, create_error(e_RetrieveError, "virStoragePoolLookupByUUID", "", conn));
-
-    return pool_new(pool, c);
-}
-
-/*
- * Call +virStoragePoolLookupByVolume+[http://www.libvirt.org/html/libvirt-libvirt.html#virStoragePoolLookupByVolume]
- */
-VALUE libvirt_vol_get_pool(VALUE v) {
-    virStoragePoolPtr pool;
-
-    pool = virStoragePoolLookupByVolume(vol_get(v));
-    _E(pool == NULL, create_error(e_RetrieveError, "virStoragePoolLookupByVolume", "", conn(v)));
-
-    return pool_new(pool, conn_attr(v));
-}
-
-/*
- * Call +virStoragePoolCreateXML+[http://www.libvirt.org/html/libvirt-libvirt.html#virStoragePoolCreateXML]
- */
-VALUE libvirt_conn_create_pool_xml(int argc, VALUE *argv, VALUE c) {
-    virStoragePoolPtr pool;
-    virConnectPtr conn = connect_get(c);
-    char *xmlDesc;
-    VALUE xml, flags;
-
-    rb_scan_args(argc, argv, "11", &xml, &flags);
-
-    if (NIL_P(flags))
-        flags = INT2FIX(0);
-
-    xmlDesc = StringValueCStr(xml);
-
-    pool = virStoragePoolCreateXML(conn, xmlDesc, NUM2UINT(flags));
-    _E(pool == NULL, create_error(e_Error, "virStoragePoolCreateXML", "", conn));
-
-    return pool_new(pool, c);
-}
-
-/*
- * Call +virStoragePoolDefineXML+[http://www.libvirt.org/html/libvirt-libvirt.html#virStoragePoolDefineXML]
- */
-VALUE libvirt_conn_define_pool_xml(int argc, VALUE *argv, VALUE c) {
-    virStoragePoolPtr pool;
-    virConnectPtr conn = connect_get(c);
-    VALUE xml, flags;
-
-    rb_scan_args(argc, argv, "11", &xml, &flags);
-
-    if (NIL_P(flags))
-        flags = INT2FIX(0);
-
-    pool = virStoragePoolDefineXML(conn, StringValueCStr(xml), NUM2UINT(flags));
-    _E(pool == NULL, create_error(e_DefinitionError, "virStoragePoolDefineXML", "", conn));
-
-    return pool_new(pool, c);
-}
-
-/*
- * Call +virStoragePoolBuild+[http://www.libvirt.org/html/libvirt-libvirt.html#virStoragePoolBuild]
- */
-VALUE libvirt_pool_build(int argc, VALUE *argv, VALUE p) {
-    VALUE flags;
-
-    rb_scan_args(argc, argv, "01", &flags);
-
-    if (NIL_P(flags))
-        flags = INT2FIX(0);
-
-    gen_call_void(virStoragePoolBuild, conn(p),
-                  pool_get(p), NUM2UINT(flags));
-}
-
-/*
- * Call +virStoragePoolUndefine+[http://www.libvirt.org/html/libvirt-libvirt.html#virStoragePoolUndefine]
- */
-VALUE libvirt_pool_undefine(VALUE p) {
-    gen_call_void(virStoragePoolUndefine, conn(p),
-                  pool_get(p));
-}
-
-/*
- * Call +virStoragePoolCreate+[http://www.libvirt.org/html/libvirt-libvirt.html#virStoragePoolCreate]
- */
-VALUE libvirt_pool_create(int argc, VALUE *argv, VALUE p) {
-    VALUE flags;
-
-    rb_scan_args(argc, argv, "01", &flags);
-
-    if (NIL_P(flags))
-        flags = INT2FIX(0);
-
-    gen_call_void(virStoragePoolCreate, conn(p),
-                  pool_get(p), NUM2UINT(flags));
-}
-
-/*
- * Call +virStoragePoolDestroy+[http://www.libvirt.org/html/libvirt-libvirt.html#virStoragePoolDestroy]
- */
-VALUE libvirt_pool_destroy(VALUE p) {
-    gen_call_void(virStoragePoolDestroy, conn(p),
-                  pool_get(p));
-}
-
-/*
- * Call +virStoragePoolDelete+[http://www.libvirt.org/html/libvirt-libvirt.html#virStoragePoolDelete]
- */
-VALUE libvirt_pool_delete(int argc, VALUE *argv, VALUE p) {
-    VALUE flags;
-
-    rb_scan_args(argc, argv, "01", &flags);
-
-    if (NIL_P(flags))
-        flags = INT2FIX(0);
-
-    gen_call_void(virStoragePoolDelete, conn(p),
-                  pool_get(p), NUM2UINT(flags));
-}
-
-/*
- * Call +virStoragePoolRefresh+[http://www.libvirt.org/html/libvirt-libvirt.html#virStoragePoolRefresh]
- */
-VALUE libvirt_pool_refresh(int argc, VALUE *argv, VALUE p) {
-    VALUE flags;
-
-    rb_scan_args(argc, argv, "01", &flags);
-
-    if (NIL_P(flags))
-        flags = INT2FIX(0);
-
-    gen_call_void(virStoragePoolRefresh, conn(p),
-                  pool_get(p), NUM2UINT(flags));
-}
-
-/*
- * Call +virStoragePoolGetName+[http://www.libvirt.org/html/libvirt-libvirt.html#virStoragePoolGetName]
- */
-VALUE libvirt_pool_name(VALUE s) {
-    const char *name;
-
-    name = virStoragePoolGetName(pool_get(s));
-    _E(name == NULL, create_error(e_RetrieveError, "virStoragePoolGetName", "", conn(s)));
-
-    return rb_str_new2(name);
-}
-
-/*
- * Call +virStoragePoolGetUUIDString+[http://www.libvirt.org/html/libvirt-libvirt.html#virStoragePoolGetUUIDString]
- */
-VALUE libvirt_pool_uuid(VALUE s) {
-    char uuid[VIR_UUID_STRING_BUFLEN];
-    int r;
-
-    r = virStoragePoolGetUUIDString(pool_get(s), uuid);
-    _E(r < 0, create_error(e_RetrieveError, "virStoragePoolGetUUIDString", "", conn(s)));
-
-    return rb_str_new2((char *) uuid);
-}
-
-/*
- * Call +virStoragePoolGetInfo+[http://www.libvirt.org/html/libvirt-libvirt.html#virStoragePoolGetInfo]
- */
-VALUE libvirt_pool_info(VALUE s) {
-    virStoragePoolInfo info;
-    int r;
-    VALUE result;
-
-    r = virStoragePoolGetInfo(pool_get(s), &info);
-    _E(r < 0, create_error(e_RetrieveError, "virStoragePoolGetInfo", "", conn(s)));
-
-    result = rb_class_new_instance(0, NULL, c_storage_pool_info);
-    rb_iv_set(result, "@state", INT2FIX(info.state));
-    rb_iv_set(result, "@capacity", ULL2NUM(info.capacity));
-    rb_iv_set(result, "@allocation", ULL2NUM(info.allocation));
-    rb_iv_set(result, "@available", ULL2NUM(info.available));
-
-    return result;
-}
-
-/*
- * Call +virStoragePoolGetXMLDesc+[http://www.libvirt.org/html/libvirt-libvirt.html#virStoragePoolGetXMLDesc]
- */
-VALUE libvirt_pool_xml_desc(int argc, VALUE *argv, VALUE s) {
-    VALUE flags;
-
-    rb_scan_args(argc, argv, "01", &flags);
-
-    if (NIL_P(flags))
-        flags = INT2FIX(0);
-
-    gen_call_string(virStoragePoolGetXMLDesc, conn(s), 1,
-                    pool_get(s), NUM2UINT(flags));
-}
-
-/*
- * Call +virStoragePoolGetAutostart+[http://www.libvirt.org/html/libvirt-libvirt.html#virStoragePoolGetAutostart]
- */
-VALUE libvirt_pool_autostart(VALUE s){
-    int r, autostart;
-
-    r = virStoragePoolGetAutostart(pool_get(s), &autostart);
-    _E(r < 0, create_error(e_RetrieveError, "virStoragePoolGetAutostart", "", conn(s)));
-
-    return autostart ? Qtrue : Qfalse;
-}
-
-/*
- * Call +virStoragePoolSetAutostart+[http://www.libvirt.org/html/libvirt-libvirt.html#virStoragePoolSetAutostart]
- */
-VALUE libvirt_pool_autostart_set(VALUE s, VALUE autostart) {
-    gen_call_void(virStoragePoolSetAutostart, conn(s),
-                  pool_get(s), RTEST(autostart) ? 1 : 0);
-}
-
-/*
- * Call +virStoragePoolNumOfVolumes+[http://www.libvirt.org/html/libvirt-libvirt.html#virStoragePoolNumOfVolumes]
- */
-VALUE libvirt_pool_num_of_volumes(VALUE s) {
-    int n = virStoragePoolNumOfVolumes(pool_get(s));
-    _E(n < 0, create_error(e_RetrieveError, "virStoragePoolNumOfVolumes", "", conn(s)));
-
-    return INT2FIX(n);
-}
-
-/*
- * Call +virStoragePoolListVolumes+[http://www.libvirt.org/html/libvirt-libvirt.html#virStoragePoolListVolumes]
- */
-VALUE libvirt_pool_list_volumes(VALUE s) {
-    int i, r, num;
-    char **names;
-    virStoragePoolPtr pool = pool_get(s);
-    VALUE result;
-
-    num = virStoragePoolNumOfVolumes(pool);
-    _E(num < 0, create_error(e_RetrieveError, "virStoragePoolNumOfVolumes", "", conn(s)));
-
-    names = ALLOC_N(char *, num);
-    r = virStoragePoolListVolumes(pool, names, num);
-    if (r < 0) {
-        free(names);
-        _E(r < 0, create_error(e_RetrieveError, "virStoragePoolListVolumes", "", conn(s)));
-    }
-
-    result = rb_ary_new2(num);
-    for (i=0; i<num; i++) {
-        rb_ary_push(result, rb_str_new2(names[i]));
-        // FIXME: Should these really be freed ?
-        free(names[i]);
-    }
-    free(names);
-    return result;
-}
-
-/*
- * Call +virStoragePoolFree+[http://www.libvirt.org/html/libvirt-libvirt.html#virStoragePoolFree]
- */
-VALUE libvirt_pool_free(VALUE s) {
-    gen_call_free(StoragePool, s);
-}
-#endif
-
-/*
- * Libvirt::StorageVol
- */
-#if HAVE_TYPE_VIRSTORAGEVOLPTR
-/*
- * Call +virStorageVolLookupByName+[http://www.libvirt.org/html/libvirt-libvirt.html#virStorageVolLookupByName]
- */
-VALUE libvirt_pool_lookup_vol_by_name(VALUE p, VALUE name) {
-    virStorageVolPtr vol;
-
-    vol = virStorageVolLookupByName(pool_get(p), StringValueCStr(name));
-    _E(vol == NULL, create_error(e_RetrieveError, "virStorageVolLookupByName", "", conn(p)));
-
-    return vol_new(vol, conn_attr(p));
-}
-
-/*
- * Call +virStorageVolLookupByKey+[http://www.libvirt.org/html/libvirt-libvirt.html#virStorageVolLookupByKey]
- */
-VALUE libvirt_pool_lookup_vol_by_key(VALUE p, VALUE key) {
-    virStorageVolPtr vol;
-
-    // FIXME: Why does this take a connection, not a pool ?
-    vol = virStorageVolLookupByKey(conn(p), StringValueCStr(key));
-    _E(vol == NULL, create_error(e_RetrieveError, "virStorageVolLookupByKey", "", conn(p)));
-
-    return vol_new(vol, conn_attr(p));
-}
-
-/*
- * Call +virStorageVolLookupByPath+[http://www.libvirt.org/html/libvirt-libvirt.html#virStorageVolLookupByPath]
- */
-VALUE libvirt_pool_lookup_vol_by_path(VALUE p, VALUE path) {
-    virStorageVolPtr vol;
-
-    // FIXME: Why does this take a connection, not a pool ?
-    vol = virStorageVolLookupByPath(conn(p), StringValueCStr(path));
-    _E(vol == NULL, create_error(e_RetrieveError, "virStorageVolLookupByPath", "", conn(p)));
-
-    return vol_new(vol, conn_attr(p));
-}
-
-/*
- * Call +virStorageVolGetName+[http://www.libvirt.org/html/libvirt-libvirt.html#virStorageVolGetName]
- */
-VALUE libvirt_vol_name(VALUE v) {
-    gen_call_string(virStorageVolGetName, conn(v), 0,
-                    vol_get(v));
-}
-
-/*
- * Call +virStorageVolGetKey+[http://www.libvirt.org/html/libvirt-libvirt.html#virStorageVolGetKey]
- */
-VALUE libvirt_vol_key(VALUE v) {
-    gen_call_string(virStorageVolGetKey, conn(v), 0,
-                    vol_get(v));
-}
-
-/*
- * Call +virStorageVolCreateXML+[http://www.libvirt.org/html/libvirt-libvirt.html#virStorageVolCreateXML]
- */
-VALUE libvirt_pool_vol_create_xml(int argc, VALUE *argv, VALUE p) {
-    virStorageVolPtr vol;
-    virConnectPtr c = conn(p);
-    char *xmlDesc;
-    VALUE xml, flags;
-
-    rb_scan_args(argc, argv, "11", &xml, &flags);
-
-    if (NIL_P(flags))
-        flags = INT2FIX(0);
-
-    xmlDesc = StringValueCStr(xml);
-
-    vol = virStorageVolCreateXML(pool_get(p), xmlDesc, NUM2UINT(flags));
-    _E(vol == NULL, create_error(e_Error, "virNetworkCreateXML", "", c));
-
-    return vol_new(vol, conn_attr(p));
-}
-
-/*
- * Call +virStorageVolDelete+[http://www.libvirt.org/html/libvirt-libvirt.html#virStorageVolDelete]
- */
-VALUE libvirt_vol_delete(int argc, VALUE *argv, VALUE v) {
-    VALUE flags;
-
-    rb_scan_args(argc, argv, "01", &flags);
-
-    if (NIL_P(flags))
-        flags = INT2FIX(0);
-
-    gen_call_void(virStorageVolDelete, conn(v),
-                  vol_get(v), NUM2UINT(flags));
-}
-
-/*
- * Call +virStorageVolGetInfo+[http://www.libvirt.org/html/libvirt-libvirt.html#virStorageVolGetInfo]
- */
-VALUE libvirt_vol_info(VALUE v) {
-    virStorageVolInfo info;
-    int r;
-    VALUE result;
-
-    r = virStorageVolGetInfo(vol_get(v), &info);
-    _E(r < 0, create_error(e_RetrieveError, "virStorageVolGetInfo", "", conn(v)));
-
-    result = rb_class_new_instance(0, NULL, c_storage_vol_info);
-    rb_iv_set(result, "@type", INT2NUM(info.type));
-    rb_iv_set(result, "@capacity", ULL2NUM(info.capacity));
-    rb_iv_set(result, "@allocation", ULL2NUM(info.allocation));
-
-    return result;
-}
-
-/*
- * Call +virStorageVolGetXMLDesc+[http://www.libvirt.org/html/libvirt-libvirt.html#virStorageVolGetXMLDesc]
- */
-VALUE libvirt_vol_xml_desc(int argc, VALUE *argv, VALUE v) {
-    VALUE flags;
-
-    rb_scan_args(argc, argv, "01", &flags);
-
-    if (NIL_P(flags))
-        flags = INT2FIX(0);
-
-    gen_call_string(virStorageVolGetXMLDesc, conn(v), 1,
-                    vol_get(v), NUM2UINT(flags));
-}
-
-/*
- * Call +virStorageVolGetPath+[http://www.libvirt.org/html/libvirt-libvirt.html#virStorageVolGetPath]
- */
-VALUE libvirt_vol_path(VALUE v) {
-    gen_call_string(virStorageVolGetPath, conn(v), 1,
-                    vol_get(v));
-}
-
-/*
- * Call +virStorageVolFree+[http://www.libvirt.org/html/libvirt-libvirt.html#virStorageVolFree]
- */
-VALUE libvirt_vol_free(VALUE s) {
-    gen_call_free(StorageVol, s);
-}
-#endif
-
-static void init_storage(void) {
-    /*
-     * Class Libvirt::StoragePool and Libvirt::StoragePoolInfo
+ * handle
+ *          an application specific timer ID.  This can be any integer, but
+ *          must be unique from all other libvirt timers in the application.
+ * opaque
+ *          the opaque data passed from libvirt during the
+ *          Libvirt::event_register_impl add_handle callback.  To ensure proper
+ *          operation this data must be passed through to
+ *          event_invoke_handle_callback without modification.
+ */
+static VALUE libvirt_event_invoke_timeout_callback(VALUE m, VALUE timer,
+                                                   VALUE opaque) {
+    virEventTimeoutCallback cb;
+    void *op;
+    VALUE libvirt_cb;
+    VALUE libvirt_opaque;
+
+    if (TYPE(opaque) != T_HASH)
+        rb_raise(rb_eTypeError,
+                 "wrong event callback argument type (expected Hash)");
+
+    libvirt_cb = rb_hash_aref(opaque, rb_str_new2("libvirt_cb"));
+
+    /* This is equivalent to Data_Get_Struct; I reproduce it here because
+     * I don't want the additional type-cast that Data_Get_Struct does
      */
-#if HAVE_TYPE_VIRSTORAGEPOOLPTR
-    c_storage_pool_info = rb_define_class_under(m_libvirt, "StoragePoolInfo",
-                                                rb_cObject);
-    rb_define_attr(c_storage_pool_info, "state", 1, 0);
-    rb_define_attr(c_storage_pool_info, "capacity", 1, 0);
-    rb_define_attr(c_storage_pool_info, "allocation", 1, 0);
-    rb_define_attr(c_storage_pool_info, "available", 1, 0);
+    Check_Type(libvirt_cb, T_DATA);
+    cb = DATA_PTR(libvirt_cb);
 
-    c_storage_pool = rb_define_class_under(m_libvirt, "StoragePool", 
-                                           rb_cObject);
-#define DEF_POOLCONST(name)                                        \
-    rb_define_const(c_storage_pool, #name, INT2NUM(VIR_STORAGE_POOL_##name))
-    /* virStoragePoolState */
-    DEF_POOLCONST(INACTIVE);
-    DEF_POOLCONST(BUILDING);
-    DEF_POOLCONST(RUNNING);
-    DEF_POOLCONST(DEGRADED);
-    /* virStoragePoolBuildFlags */
-    DEF_POOLCONST(BUILD_NEW);
-    DEF_POOLCONST(BUILD_REPAIR);
-    DEF_POOLCONST(BUILD_RESIZE);
-    /* virStoragePoolDeleteFlags */
-    DEF_POOLCONST(DELETE_NORMAL);
-    DEF_POOLCONST(DELETE_ZEROED);
-#undef DEF_POOLCONST
-    /* Creating/destroying pools */
-    rb_define_method(c_storage_pool, "build", libvirt_pool_build, -1);
-    rb_define_method(c_storage_pool, "undefine", libvirt_pool_undefine, 0);
-    rb_define_method(c_storage_pool, "create", libvirt_pool_create, -1);
-    rb_define_method(c_storage_pool, "destroy", libvirt_pool_destroy, 0);
-    rb_define_method(c_storage_pool, "delete", libvirt_pool_delete, -1);
-    rb_define_method(c_storage_pool, "refresh", libvirt_pool_refresh, -1);
-    /* StoragePool information */
-    rb_define_method(c_storage_pool, "name", libvirt_pool_name, 0);
-    rb_define_method(c_storage_pool, "uuid", libvirt_pool_uuid, 0);
-    rb_define_method(c_storage_pool, "info", libvirt_pool_info, 0);
-    rb_define_method(c_storage_pool, "xml_desc", libvirt_pool_xml_desc, -1);
-    rb_define_method(c_storage_pool, "autostart", libvirt_pool_autostart, 0);
-    rb_define_method(c_storage_pool, "autostart=",
-                     libvirt_pool_autostart_set, 1);
-    /* List/lookup storage volumes within a pool */
-    rb_define_method(c_storage_pool, "num_of_volumes",
-                     libvirt_pool_num_of_volumes, 0);
-    rb_define_method(c_storage_pool, "list_volumes",
-                     libvirt_pool_list_volumes, 0);
-    /* Lookup volumes based on various attributes */
-    rb_define_method(c_storage_pool, "lookup_volume_by_name",
-                     libvirt_pool_lookup_vol_by_name, 1);
-    rb_define_method(c_storage_pool, "lookup_volume_by_key",
-                     libvirt_pool_lookup_vol_by_key, 1);
-    rb_define_method(c_storage_pool, "lookup_volume_by_path",
-                     libvirt_pool_lookup_vol_by_path, 1);
-    rb_define_method(c_storage_pool, "free", libvirt_pool_free, 0);
-    rb_define_method(c_storage_pool, "create_vol_xml", libvirt_pool_vol_create_xml, -1);
-#endif
+    if (cb) {
+        libvirt_opaque = rb_hash_aref(opaque, rb_str_new2("opaque"));
+        Data_Get_Struct(libvirt_opaque, void *, op);
+        cb(NUM2INT(timer), op);
+    }
 
-#if HAVE_TYPE_VIRSTORAGEVOLPTR
-    /*
-     * Class Libvirt::StorageVol and Libvirt::StorageVolInfo
-     */
-    c_storage_vol_info = rb_define_class_under(m_libvirt, "StorageVolInfo",
-                                               rb_cObject);
-    rb_define_attr(c_storage_vol_info, "type", 1, 0);
-    rb_define_attr(c_storage_vol_info, "capacity", 1, 0);
-    rb_define_attr(c_storage_vol_info, "allocation", 1, 0);
-
-    c_storage_vol = rb_define_class_under(m_libvirt, "StorageVol",
-                                          rb_cObject);
-#define DEF_VOLCONST(name)                                        \
-    rb_define_const(c_storage_vol, #name, INT2NUM(VIR_STORAGE_VOL_##name))
-    /* virStorageVolType */
-    DEF_VOLCONST(FILE);
-    DEF_VOLCONST(BLOCK);
-    /* virStorageVolDeleteFlags */
-    DEF_VOLCONST(DELETE_NORMAL);
-    DEF_VOLCONST(DELETE_ZEROED);
-#undef DEF_VOLCONST
-
-    rb_define_method(c_storage_vol, "pool", libvirt_vol_get_pool, 0);
-    rb_define_method(c_storage_vol, "name", libvirt_vol_name, 0);
-    rb_define_method(c_storage_vol, "key", libvirt_vol_key, 0);
-    rb_define_method(c_storage_vol, "delete", libvirt_vol_delete, -1);
-    rb_define_method(c_storage_vol, "info", libvirt_vol_info, 0);
-    rb_define_method(c_storage_vol, "xml_desc", libvirt_vol_xml_desc, -1);
-    rb_define_method(c_storage_vol, "path", libvirt_vol_path, 0);
-    rb_define_method(c_storage_vol, "free", libvirt_vol_free, 0);
-#endif
+    return Qnil;
 }
 
+static int internal_add_handle_func(int fd, int events,
+                                    virEventHandleCallback cb, void *opaque,
+                                    virFreeCallback ff) {
+    VALUE rubyargs;
+    VALUE res;
+
+    rubyargs = rb_hash_new();
+    rb_hash_aset(rubyargs, rb_str_new2("libvirt_cb"),
+                 Data_Wrap_Struct(rb_class_of(add_handle), NULL, NULL, cb));
+    rb_hash_aset(rubyargs, rb_str_new2("opaque"),
+                 Data_Wrap_Struct(rb_class_of(add_handle), NULL, NULL, opaque));
+    rb_hash_aset(rubyargs, rb_str_new2("free_func"),
+                 Data_Wrap_Struct(rb_class_of(add_handle), NULL, NULL, ff));
+
+    /* call out to the ruby object */
+    if (strcmp(rb_obj_classname(add_handle), "Symbol") == 0)
+        res = rb_funcall(rb_class_of(add_handle), rb_to_id(add_handle), 3,
+                         INT2NUM(fd), INT2NUM(events), rubyargs);
+    else if (strcmp(rb_obj_classname(add_handle), "Proc") == 0)
+        res = rb_funcall(add_handle, rb_intern("call"), 3, INT2NUM(fd),
+                         INT2NUM(events), rubyargs);
+    else
+        rb_raise(rb_eTypeError,
+                 "wrong add handle callback argument type (expected Symbol or Proc)");
+
+    if (TYPE(res) != T_FIXNUM)
+        rb_raise(rb_eTypeError,
+                 "expected integer return from add_handle callback");
+
+    return NUM2INT(res);
+}
+
+static void internal_update_handle_func(int watch, int event) {
+    /* call out to the ruby object */
+    if (strcmp(rb_obj_classname(update_handle), "Symbol") == 0)
+        rb_funcall(rb_class_of(update_handle), rb_to_id(update_handle), 2,
+                   INT2NUM(watch), INT2NUM(event));
+    else if (strcmp(rb_obj_classname(update_handle), "Proc") == 0)
+        rb_funcall(update_handle, rb_intern("call"), 2, INT2NUM(watch),
+                   INT2NUM(event));
+    else
+        rb_raise(rb_eTypeError,
+                 "wrong update handle callback argument type (expected Symbol or Proc)");
+}
+
+static int internal_remove_handle_func(int watch) {
+    VALUE res;
+    virFreeCallback ff_cb;
+    void *op;
+    VALUE libvirt_opaque;
+    VALUE ff;
+
+    /* call out to the ruby object */
+    if (strcmp(rb_obj_classname(remove_handle), "Symbol") == 0)
+        res = rb_funcall(rb_class_of(remove_handle), rb_to_id(remove_handle),
+                         1, INT2NUM(watch));
+    else if (strcmp(rb_obj_classname(remove_handle), "Proc") == 0)
+        res = rb_funcall(remove_handle, rb_intern("call"), 1, INT2NUM(watch));
+    else
+        rb_raise(rb_eTypeError,
+                 "wrong remove handle callback argument type (expected Symbol or Proc)");
+
+    if (TYPE(res) != T_HASH)
+        rb_raise(rb_eTypeError,
+                 "expected opaque hash returned from remove_handle callback");
+
+    ff = rb_hash_aref(res, rb_str_new2("free_func"));
+    if (!NIL_P(ff)) {
+        /* This is equivalent to Data_Get_Struct; I reproduce it here because
+         * I don't want the additional type-cast that Data_Get_Struct does
+         */
+        Check_Type(ff, T_DATA);
+        ff_cb = DATA_PTR(ff);
+        if (ff_cb) {
+            libvirt_opaque = rb_hash_aref(res, rb_str_new2("opaque"));
+            Data_Get_Struct(libvirt_opaque, void *, op);
+
+            (*ff_cb)(op);
+        }
+    }
+
+    return 0;
+}
+
+static int internal_add_timeout_func(int interval, virEventTimeoutCallback cb,
+                                     void *opaque, virFreeCallback ff) {
+    VALUE rubyargs;
+    VALUE res;
+
+    rubyargs = rb_hash_new();
+
+    rb_hash_aset(rubyargs, rb_str_new2("libvirt_cb"),
+                 Data_Wrap_Struct(rb_class_of(add_timeout), NULL, NULL, cb));
+    rb_hash_aset(rubyargs, rb_str_new2("opaque"),
+                 Data_Wrap_Struct(rb_class_of(add_timeout), NULL, NULL,
+                                  opaque));
+    rb_hash_aset(rubyargs, rb_str_new2("free_func"),
+                 Data_Wrap_Struct(rb_class_of(add_timeout), NULL, NULL, ff));
+
+    /* call out to the ruby object */
+    if (strcmp(rb_obj_classname(add_timeout), "Symbol") == 0)
+        res = rb_funcall(rb_class_of(add_timeout), rb_to_id(add_timeout), 2,
+                         INT2NUM(interval), rubyargs);
+    else if (strcmp(rb_obj_classname(add_timeout), "Proc") == 0)
+        res = rb_funcall(add_timeout, rb_intern("call"), 2, INT2NUM(interval),
+                         rubyargs);
+    else
+        rb_raise(rb_eTypeError,
+                 "wrong add timeout callback argument type (expected Symbol or Proc)");
+
+    if (TYPE(res) != T_FIXNUM)
+        rb_raise(rb_eTypeError,
+                 "expected integer return from add_timeout callback");
+
+    return NUM2INT(res);
+}
+
+static void internal_update_timeout_func(int timer, int timeout) {
+    /* call out to the ruby object */
+    if (strcmp(rb_obj_classname(update_timeout), "Symbol") == 0)
+        rb_funcall(rb_class_of(update_timeout), rb_to_id(update_timeout), 2,
+                   INT2NUM(timer), INT2NUM(timeout));
+    else if (strcmp(rb_obj_classname(update_timeout), "Proc") == 0)
+        rb_funcall(update_timeout, rb_intern("call"), 2, INT2NUM(timer),
+                   INT2NUM(timeout));
+    else
+        rb_raise(rb_eTypeError,
+                 "wrong update timeout callback argument type (expected Symbol or Proc)");
+}
+
+static int internal_remove_timeout_func(int timer) {
+    VALUE res;
+    virFreeCallback ff_cb;
+    void *op;
+    VALUE libvirt_opaque;
+    VALUE ff;
+
+    /* call out to the ruby object */
+    if (strcmp(rb_obj_classname(remove_timeout), "Symbol") == 0)
+        res = rb_funcall(rb_class_of(remove_timeout), rb_to_id(remove_timeout),
+                         1, INT2NUM(timer));
+    else if (strcmp(rb_obj_classname(remove_timeout), "Proc") == 0)
+        res = rb_funcall(remove_timeout, rb_intern("call"), 1, INT2NUM(timer));
+    else
+        rb_raise(rb_eTypeError,
+                 "wrong remove timeout callback argument type (expected Symbol or Proc)");
+
+    if (TYPE(res) != T_HASH)
+        rb_raise(rb_eTypeError,
+                 "expected opaque hash returned from remove_timeout callback");
+
+    ff = rb_hash_aref(res, rb_str_new2("free_func"));
+    if (!NIL_P(ff)) {
+        /* This is equivalent to Data_Get_Struct; I reproduce it here because
+         * I don't want the additional type-cast that Data_Get_Struct does
+         */
+        Check_Type(ff, T_DATA);
+        ff_cb = DATA_PTR(ff);
+        if (ff_cb) {
+            libvirt_opaque = rb_hash_aref(res, rb_str_new2("opaque"));
+            Data_Get_Struct(libvirt_opaque, void *, op);
+
+            (*ff_cb)(op);
+        }
+    }
+
+    return 0;
+}
+
+#define set_event_func_or_null(type)                \
+    do {                                            \
+        if (NIL_P(type))                            \
+            type##_temp = NULL;                     \
+        else                                        \
+            type##_temp = internal_##type##_func;   \
+    } while(0)
+
+static int is_symbol_proc_or_nil(VALUE handle) {
+    if (NIL_P(handle))
+        return 1;
+    return is_symbol_or_proc(handle);
+}
+
+/*
+ * call-seq:
+ *   Libvirt::event_register_impl(add_handle=nil, update_handle=nil, remove_handle=nil, add_timeout=nil, update_timeout=nil, remove_timeout=nil) -> Qnil
+ *
+ * Call
+ * +virEventRegisterImpl+[http://www.libvirt.org/html/libvirt-libvirt.html#virEventRegisterImpl]
+ * to register callback handlers for handles and timeouts.  These handles and
+ * timeouts are used as part of the libvirt infrastructure for generating
+ * domain events.  Each callback must be a Symbol (that is the name of a
+ * method to callback), a Proc, or nil (to disable the callback).  In the
+ * end-user application program, these callbacks are typically used to track
+ * the file descriptors or timers that libvirt is interested in (and is intended
+ * to be integrated into the "main loop" of a UI program).  The individual
+ * callbacks will be given a certain number of arguments, and must return
+ * certain values.  Those arguments and return types are:
+ *
+ * add_handle(fd, events, opaque) => Fixnum
+ *
+ * update_handle(handleID, event) => nil
+ *
+ * remove_handle(handleID) => opaque data from add_handle
+ *
+ * add_timeout(interval, opaque) => Fixnum
+ *
+ * update_timeout(timerID, timeout) => nil
+ *
+ * remove_timeout(timerID) => opaque data from add_timeout
+ *
+ * Any arguments marked as "opaque" must be accepted from the library and saved
+ * without modification.  The values passed to the callbacks are meant to be
+ * passed to the event_invoke_handle_callback and event_invoke_timeout_callback
+ * module methods; see the documentation for those methods for more details.
+ */
+static VALUE libvirt_conn_event_register_impl(int argc, VALUE *argv, VALUE c) {
+    virEventAddHandleFunc add_handle_temp;
+    virEventUpdateHandleFunc update_handle_temp;
+    virEventRemoveHandleFunc remove_handle_temp;
+    virEventAddTimeoutFunc add_timeout_temp;
+    virEventUpdateTimeoutFunc update_timeout_temp;
+    virEventRemoveTimeoutFunc remove_timeout_temp;
+
+    /*
+     * subtle; we put the arguments (callbacks) directly into the global
+     * add_handle, update_handle, etc. variables.  Then we register the
+     * internal functions as the callbacks with virEventRegisterImpl
+     */
+    rb_scan_args(argc, argv, "06", &add_handle, &update_handle, &remove_handle,
+                 &add_timeout, &update_timeout, &remove_timeout);
+
+    if (!is_symbol_proc_or_nil(add_handle) ||
+        !is_symbol_proc_or_nil(update_handle) ||
+        !is_symbol_proc_or_nil(remove_handle) ||
+        !is_symbol_proc_or_nil(add_timeout) ||
+        !is_symbol_proc_or_nil(update_timeout) ||
+        !is_symbol_proc_or_nil(remove_timeout))
+        rb_raise(rb_eTypeError,
+                 "wrong argument type (expected Symbol, Proc, or nil)");
+
+    set_event_func_or_null(add_handle);
+    set_event_func_or_null(update_handle);
+    set_event_func_or_null(remove_handle);
+    set_event_func_or_null(add_timeout);
+    set_event_func_or_null(update_timeout);
+    set_event_func_or_null(remove_timeout);
+
+    /* virEventRegisterImpl returns void, so no error checking here */
+    virEventRegisterImpl(add_handle_temp, update_handle_temp,
+                         remove_handle_temp, add_timeout_temp,
+                         update_timeout_temp, remove_timeout_temp);
+
+    return Qnil;
+}
+#endif
+
+/*
+ * Module Libvirt
+ */
 void Init__libvirt() {
-    int r;
-
     m_libvirt = rb_define_module("Libvirt");
     c_libvirt_version = rb_define_class_under(m_libvirt, "Version",
                                               rb_cObject);
 
+#if HAVE_VIRCONNECTOPENAUTH
+    rb_define_const(m_libvirt, "CONNECT_RO", INT2NUM(VIR_CONNECT_RO));
+
+    rb_define_const(m_libvirt, "CRED_USERNAME", INT2NUM(VIR_CRED_USERNAME));
+    rb_define_const(m_libvirt, "CRED_AUTHNAME", INT2NUM(VIR_CRED_AUTHNAME));
+    rb_define_const(m_libvirt, "CRED_LANGUAGE", INT2NUM(VIR_CRED_LANGUAGE));
+    rb_define_const(m_libvirt, "CRED_CNONCE", INT2NUM(VIR_CRED_CNONCE));
+    rb_define_const(m_libvirt, "CRED_PASSPHRASE", INT2NUM(VIR_CRED_PASSPHRASE));
+    rb_define_const(m_libvirt, "CRED_ECHOPROMPT", INT2NUM(VIR_CRED_ECHOPROMPT));
+    rb_define_const(m_libvirt, "CRED_NOECHOPROMPT", INT2NUM(VIR_CRED_NOECHOPROMPT));
+    rb_define_const(m_libvirt, "CRED_REALM", INT2NUM(VIR_CRED_REALM));
+    rb_define_const(m_libvirt, "CRED_EXTERNAL", INT2NUM(VIR_CRED_EXTERNAL));
+#endif
 
     /*
      * Libvirt Errors
      */
-    e_Error =           rb_define_class_under(m_libvirt, "Error", 
-                                               rb_eStandardError);
-    e_ConnectionError = rb_define_class_under(m_libvirt, "ConnectionError", 
-                                                e_Error);
-    e_DefinitionError = rb_define_class_under(m_libvirt, "DefinitionError", 
-                                                e_Error);
-    e_RetrieveError =   rb_define_class_under(m_libvirt, "RetrieveError", 
-                                                e_Error);
+    e_Error =           rb_define_class_under(m_libvirt, "Error",
+                                              rb_eStandardError);
+    e_ConnectionError = rb_define_class_under(m_libvirt, "ConnectionError",
+                                              e_Error);
+    e_DefinitionError = rb_define_class_under(m_libvirt, "DefinitionError",
+                                              e_Error);
+    e_RetrieveError =   rb_define_class_under(m_libvirt, "RetrieveError",
+                                              e_Error);
+    e_NoSupportError =  rb_define_class_under(m_libvirt, "NoSupportError",
+                                              e_Error);
 
-    // create 'libvirt_function_name' and 'vir_connect_ptr' attributes on e_Error class
     rb_define_attr(e_Error, "libvirt_function_name", 1, 0);
     rb_define_attr(e_Error, "libvirt_message", 1, 0);
+    rb_define_attr(e_Error, "libvirt_code", 1, 0);
+    rb_define_attr(e_Error, "libvirt_component", 1, 0);
+    rb_define_attr(e_Error, "libvirt_level", 1, 0);
 
-    /*
-     * Class Libvirt::Connect
-     */
-    c_connect = rb_define_class_under(m_libvirt, "Connect", rb_cObject);
-
-    rb_define_module_function(m_libvirt, "version", libvirt_version, 1);
-	rb_define_module_function(m_libvirt, "open", libvirt_open, 1);
-	rb_define_module_function(m_libvirt, "open_read_only",
-                              libvirt_open_read_only, 1);
-
-    rb_define_method(c_connect, "close", libvirt_conn_close, 0);
-    rb_define_method(c_connect, "closed?", libvirt_conn_closed_p, 0);
-    rb_define_method(c_connect, "type", libvirt_conn_type, 0);
-    rb_define_method(c_connect, "version", libvirt_conn_version, 0);
-    rb_define_method(c_connect, "hostname", libvirt_conn_hostname, 0);
-    rb_define_method(c_connect, "uri", libvirt_conn_uri, 0);
-    rb_define_method(c_connect, "max_vcpus", libvirt_conn_max_vcpus, 1);
-    rb_define_method(c_connect, "node_get_info", libvirt_conn_node_get_info, 0);
-    rb_define_method(c_connect, "capabilities", libvirt_conn_capabilities, 0);
-    rb_define_method(c_connect, "num_of_domains", libvirt_conn_num_of_domains, 0);
-    rb_define_method(c_connect, "list_domains", libvirt_conn_list_domains, 0);
-    rb_define_method(c_connect, "num_of_defined_domains",
-                     libvirt_conn_num_of_defined_domains, 0);
-    rb_define_method(c_connect, "list_defined_domains",
-                     libvirt_conn_list_defined_domains, 0);
-#if HAVE_TYPE_VIRNETWORKPTR
-    rb_define_method(c_connect, "num_of_networks",
-                     libvirt_conn_num_of_networks, 0);
-    rb_define_method(c_connect, "list_networks", libvirt_conn_list_networks, 0);
-    rb_define_method(c_connect, "num_of_defined_networks",
-                     libvirt_conn_num_of_defined_networks, 0);
-    rb_define_method(c_connect, "list_defined_networks",
-                     libvirt_conn_list_defined_networks, 0);
+    /* libvirt error components (domains) */
+    rb_define_const(e_Error, "FROM_NONE", INT2NUM(VIR_FROM_NONE));
+    rb_define_const(e_Error, "FROM_XEN", INT2NUM(VIR_FROM_XEN));
+    rb_define_const(e_Error, "FROM_XEND", INT2NUM(VIR_FROM_XEND));
+    rb_define_const(e_Error, "FROM_XENSTORE", INT2NUM(VIR_FROM_XENSTORE));
+    rb_define_const(e_Error, "FROM_SEXPR", INT2NUM(VIR_FROM_SEXPR));
+    rb_define_const(e_Error, "FROM_XML", INT2NUM(VIR_FROM_XML));
+    rb_define_const(e_Error, "FROM_DOM", INT2NUM(VIR_FROM_DOM));
+    rb_define_const(e_Error, "FROM_RPC", INT2NUM(VIR_FROM_RPC));
+    rb_define_const(e_Error, "FROM_PROXY", INT2NUM(VIR_FROM_PROXY));
+    rb_define_const(e_Error, "FROM_CONF", INT2NUM(VIR_FROM_CONF));
+    rb_define_const(e_Error, "FROM_QEMU", INT2NUM(VIR_FROM_QEMU));
+    rb_define_const(e_Error, "FROM_NET", INT2NUM(VIR_FROM_NET));
+    rb_define_const(e_Error, "FROM_TEST", INT2NUM(VIR_FROM_TEST));
+    rb_define_const(e_Error, "FROM_REMOTE", INT2NUM(VIR_FROM_REMOTE));
+    rb_define_const(e_Error, "FROM_OPENVZ", INT2NUM(VIR_FROM_OPENVZ));
+#if HAVE_CONST_VIR_FROM_VMWARE
+    rb_define_const(e_Error, "FROM_VMWARE", INT2NUM(VIR_FROM_VMWARE));
+#endif
+#if HAVE_CONST_VIR_FROM_XENXM
+    rb_define_const(e_Error, "FROM_XENXM", INT2NUM(VIR_FROM_XENXM));
+#endif
+#if HAVE_CONST_VIR_FROM_STATS_LINUX
+    rb_define_const(e_Error, "FROM_STATS_LINUX", INT2NUM(VIR_FROM_STATS_LINUX));
+#endif
+#if HAVE_TYPE_VIR_FROM_LXC
+    rb_define_const(e_Error, "FROM_LXC", INT2NUM(VIR_FROM_LXC));
 #endif
 #if HAVE_TYPE_VIRSTORAGEPOOLPTR
-    rb_define_method(c_connect, "num_of_storage_pools",
-                     libvirt_conn_num_of_storage_pools, 0);
-    rb_define_method(c_connect, "list_storage_pools",
-                     libvirt_conn_list_storage_pools, 0);
-    rb_define_method(c_connect, "num_of_defined_storage_pools",
-                     libvirt_conn_num_of_defined_storage_pools, 0);
-    rb_define_method(c_connect, "list_defined_storage_pools",
-                     libvirt_conn_list_defined_storage_pools, 0);
+    rb_define_const(e_Error, "FROM_STORAGE", INT2NUM(VIR_FROM_STORAGE));
 #endif
-    // Domain creation/lookup
-    rb_define_method(c_connect, "create_domain_linux",
-                     libvirt_conn_create_linux, -1);
-    rb_define_method(c_connect, "lookup_domain_by_name",
-                     libvirt_conn_lookup_domain_by_name, 1);
-    rb_define_method(c_connect, "lookup_domain_by_id",
-                     libvirt_conn_lookup_domain_by_id, 1);
-    rb_define_method(c_connect, "lookup_domain_by_uuid",
-                     libvirt_conn_lookup_domain_by_uuid, 1);
-    rb_define_method(c_connect, "define_domain_xml",
-                     libvirt_conn_define_domain_xml, 1);
-    // Network creation/lookup
-#if HAVE_TYPE_VIRNETWORKPTR
-    rb_define_method(c_connect, "lookup_network_by_name",
-                     libvirt_conn_lookup_network_by_name, 1);
-    rb_define_method(c_connect, "lookup_network_by_uuid",
-                     libvirt_conn_lookup_network_by_uuid, 1);
-    rb_define_method(c_connect, "create_network_xml",
-                     libvirt_conn_create_network_xml, 1);
-    rb_define_method(c_connect, "define_network_xml",
-                     libvirt_conn_define_network_xml, 1);
+#if HAVE_CONST_VIR_FROM_NETWORK
+    rb_define_const(e_Error, "FROM_NETWORK", INT2NUM(VIR_FROM_NETWORK));
 #endif
-    // Storage pool creation/lookup
+#if HAVE_CONST_VIR_FROM_DOMAIN
+    rb_define_const(e_Error, "FROM_DOMAIN", INT2NUM(VIR_FROM_DOMAIN));
+#endif
+#if HAVE_CONST_VIR_FROM_UML
+    rb_define_const(e_Error, "FROM_UML", INT2NUM(VIR_FROM_UML));
+#endif
+#if HAVE_TYPE_VIRNODEDEVICEPTR
+    rb_define_const(e_Error, "FROM_NODEDEV", INT2NUM(VIR_FROM_NODEDEV));
+#endif
+#if HAVE_CONST_VIR_FROM_XEN_INOTIFY
+    rb_define_const(e_Error, "FROM_XEN_INOTIFY", INT2NUM(VIR_FROM_XEN_INOTIFY));
+#endif
+#if HAVE_CONST_VIR_FROM_SECURITY
+    rb_define_const(e_Error, "FROM_SECURITY", INT2NUM(VIR_FROM_SECURITY));
+#endif
+#if HAVE_CONST_VIR_FROM_VBOX
+    rb_define_const(e_Error, "FROM_VBOX", INT2NUM(VIR_FROM_VBOX));
+#endif
+#if HAVE_TYPE_VIRINTERFACEPTR
+    rb_define_const(e_Error, "FROM_INTERFACE", INT2NUM(VIR_FROM_INTERFACE));
+#endif
+#if HAVE_CONST_VIR_FROM_ONE
+    rb_define_const(e_Error, "FROM_ONE", INT2NUM(VIR_FROM_ONE));
+#endif
+#if HAVE_CONST_VIR_FROM_ESX
+    rb_define_const(e_Error, "FROM_ESX", INT2NUM(VIR_FROM_ESX));
+#endif
+#if HAVE_CONST_VIR_FROM_PHYP
+    rb_define_const(e_Error, "FROM_PHYP", INT2NUM(VIR_FROM_PHYP));
+#endif
+#if HAVE_TYPE_VIRSECRETPTR
+    rb_define_const(e_Error, "FROM_SECRET", INT2NUM(VIR_FROM_SECRET));
+#endif
+#if HAVE_VIRCONNECTCOMPARECPU
+    rb_define_const(e_Error, "FROM_CPU", INT2NUM(VIR_FROM_CPU));
+#endif
+#if HAVE_CONST_VIR_FROM_XENAPI
+    rb_define_const(e_Error, "FROM_XENAPI", INT2NUM(VIR_FROM_XENAPI));
+#endif
+#if HAVE_TYPE_VIRNWFILTERPTR
+    rb_define_const(e_Error, "FROM_NWFILTER", INT2NUM(VIR_FROM_NWFILTER));
+#endif
+#if HAVE_CONST_VIR_FROM_HOOK
+    rb_define_const(e_Error, "FROM_HOOK", INT2NUM(VIR_FROM_HOOK));
+#endif
+#if HAVE_TYPE_VIRDOMAINSNAPSHOTPTR
+    rb_define_const(e_Error, "FROM_DOMAIN_SNAPSHOT",
+                    INT2NUM(VIR_FROM_DOMAIN_SNAPSHOT));
+#endif
+#if HAVE_CONST_VIR_FROM_AUDIT
+    rb_define_const(e_Error, "FROM_AUDIT", INT2NUM(VIR_FROM_AUDIT));
+#endif
+#if HAVE_CONST_VIR_FROM_SYSINFO
+    rb_define_const(e_Error, "FROM_SYSINFO", INT2NUM(VIR_FROM_SYSINFO));
+#endif
+#if HAVE_CONST_VIR_FROM_STREAMS
+    rb_define_const(e_Error, "FROM_STREAMS", INT2NUM(VIR_FROM_STREAMS));
+#endif
+
+    /* libvirt error codes */
+    rb_define_const(e_Error, "ERR_OK", INT2NUM(VIR_ERR_OK));
+    rb_define_const(e_Error, "ERR_INTERNAL_ERROR",
+                    INT2NUM(VIR_ERR_INTERNAL_ERROR));
+    rb_define_const(e_Error, "ERR_NO_MEMORY", INT2NUM(VIR_ERR_NO_MEMORY));
+    rb_define_const(e_Error, "ERR_NO_SUPPORT", INT2NUM(VIR_ERR_NO_SUPPORT));
+    rb_define_const(e_Error, "ERR_UNKNOWN_HOST", INT2NUM(VIR_ERR_UNKNOWN_HOST));
+    rb_define_const(e_Error, "ERR_NO_CONNECT", INT2NUM(VIR_ERR_NO_CONNECT));
+    rb_define_const(e_Error, "ERR_INVALID_CONN", INT2NUM(VIR_ERR_INVALID_CONN));
+    rb_define_const(e_Error, "ERR_INVALID_DOMAIN",
+                    INT2NUM(VIR_ERR_INVALID_DOMAIN));
+    rb_define_const(e_Error, "ERR_INVALID_ARG", INT2NUM(VIR_ERR_INVALID_ARG));
+    rb_define_const(e_Error, "ERR_OPERATION_FAILED",
+                    INT2NUM(VIR_ERR_OPERATION_FAILED));
+    rb_define_const(e_Error, "ERR_GET_FAILED", INT2NUM(VIR_ERR_GET_FAILED));
+    rb_define_const(e_Error, "ERR_POST_FAILED", INT2NUM(VIR_ERR_POST_FAILED));
+    rb_define_const(e_Error, "ERR_HTTP_ERROR", INT2NUM(VIR_ERR_HTTP_ERROR));
+    rb_define_const(e_Error, "ERR_SEXPR_SERIAL", INT2NUM(VIR_ERR_SEXPR_SERIAL));
+    rb_define_const(e_Error, "ERR_NO_XEN", INT2NUM(VIR_ERR_NO_XEN));
+    rb_define_const(e_Error, "ERR_XEN_CALL", INT2NUM(VIR_ERR_XEN_CALL));
+    rb_define_const(e_Error, "ERR_OS_TYPE", INT2NUM(VIR_ERR_OS_TYPE));
+    rb_define_const(e_Error, "ERR_NO_KERNEL", INT2NUM(VIR_ERR_NO_KERNEL));
+    rb_define_const(e_Error, "ERR_NO_ROOT", INT2NUM(VIR_ERR_NO_ROOT));
+    rb_define_const(e_Error, "ERR_NO_SOURCE", INT2NUM(VIR_ERR_NO_SOURCE));
+    rb_define_const(e_Error, "ERR_NO_TARGET", INT2NUM(VIR_ERR_NO_TARGET));
+    rb_define_const(e_Error, "ERR_NO_NAME", INT2NUM(VIR_ERR_NO_NAME));
+    rb_define_const(e_Error, "ERR_NO_OS", INT2NUM(VIR_ERR_NO_OS));
+    rb_define_const(e_Error, "ERR_NO_DEVICE", INT2NUM(VIR_ERR_NO_DEVICE));
+    rb_define_const(e_Error, "ERR_NO_XENSTORE", INT2NUM(VIR_ERR_NO_XENSTORE));
+    rb_define_const(e_Error, "ERR_DRIVER_FULL", INT2NUM(VIR_ERR_DRIVER_FULL));
+    rb_define_const(e_Error, "ERR_CALL_FAILED", INT2NUM(VIR_ERR_CALL_FAILED));
+    rb_define_const(e_Error, "ERR_XML_ERROR", INT2NUM(VIR_ERR_XML_ERROR));
+    rb_define_const(e_Error, "ERR_DOM_EXIST", INT2NUM(VIR_ERR_DOM_EXIST));
+    rb_define_const(e_Error, "ERR_OPERATION_DENIED",
+                    INT2NUM(VIR_ERR_OPERATION_DENIED));
+    rb_define_const(e_Error, "ERR_OPEN_FAILED", INT2NUM(VIR_ERR_OPEN_FAILED));
+    rb_define_const(e_Error, "ERR_READ_FAILED", INT2NUM(VIR_ERR_READ_FAILED));
+    rb_define_const(e_Error, "ERR_PARSE_FAILED", INT2NUM(VIR_ERR_PARSE_FAILED));
+    rb_define_const(e_Error, "ERR_CONF_SYNTAX", INT2NUM(VIR_ERR_CONF_SYNTAX));
+    rb_define_const(e_Error, "ERR_WRITE_FAILED", INT2NUM(VIR_ERR_WRITE_FAILED));
+    rb_define_const(e_Error, "ERR_XML_DETAIL", INT2NUM(VIR_ERR_XML_DETAIL));
+    rb_define_const(e_Error, "ERR_INVALID_NETWORK",
+                    INT2NUM(VIR_ERR_INVALID_NETWORK));
+    rb_define_const(e_Error, "ERR_NETWORK_EXIST",
+                    INT2NUM(VIR_ERR_NETWORK_EXIST));
+    rb_define_const(e_Error, "ERR_SYSTEM_ERROR", INT2NUM(VIR_ERR_SYSTEM_ERROR));
+    rb_define_const(e_Error, "ERR_RPC", INT2NUM(VIR_ERR_RPC));
+    rb_define_const(e_Error, "ERR_GNUTLS_ERROR", INT2NUM(VIR_ERR_GNUTLS_ERROR));
+    rb_define_const(e_Error, "WAR_NO_NETWORK", INT2NUM(VIR_WAR_NO_NETWORK));
+    rb_define_const(e_Error, "ERR_NO_DOMAIN", INT2NUM(VIR_ERR_NO_DOMAIN));
+    rb_define_const(e_Error, "ERR_NO_NETWORK", INT2NUM(VIR_ERR_NO_NETWORK));
+    rb_define_const(e_Error, "ERR_INVALID_MAC", INT2NUM(VIR_ERR_INVALID_MAC));
+#if HAVE_CONST_VIR_ERR_AUTH_FAILED
+    rb_define_const(e_Error, "ERR_AUTH_FAILED", INT2NUM(VIR_ERR_AUTH_FAILED));
+#endif
 #if HAVE_TYPE_VIRSTORAGEPOOLPTR
-    rb_define_method(c_connect, "lookup_storage_pool_by_name",
-                     libvirt_conn_lookup_pool_by_name, 1);
-    rb_define_method(c_connect, "lookup_storage_pool_by_uuid",
-                     libvirt_conn_lookup_pool_by_uuid, 1);
-    rb_define_method(c_connect, "create_storage_pool_xml",
-                     libvirt_conn_create_pool_xml, -1);
-    rb_define_method(c_connect, "define_storage_pool_xml",
-                     libvirt_conn_define_pool_xml, -1);
+    rb_define_const(e_Error, "ERR_INVALID_STORAGE_POOL",
+                    INT2NUM(VIR_ERR_INVALID_STORAGE_POOL));
+    rb_define_const(e_Error, "ERR_INVALID_STORAGE_VOL",
+                    INT2NUM(VIR_ERR_INVALID_STORAGE_VOL));
+    rb_define_const(e_Error, "WAR_NO_STORAGE", INT2NUM(VIR_WAR_NO_STORAGE));
+    rb_define_const(e_Error, "ERR_NO_STORAGE_POOL",
+                    INT2NUM(VIR_ERR_NO_STORAGE_POOL));
+    rb_define_const(e_Error, "ERR_NO_STORAGE_VOL",
+                    INT2NUM(VIR_ERR_NO_STORAGE_VOL));
+#endif
+#if HAVE_TYPE_VIRNODEDEVICEPTR
+    rb_define_const(e_Error, "WAR_NO_NODE", INT2NUM(VIR_WAR_NO_NODE));
+    rb_define_const(e_Error, "ERR_INVALID_NODE_DEVICE",
+                    INT2NUM(VIR_ERR_INVALID_NODE_DEVICE));
+    rb_define_const(e_Error, "ERR_NO_NODE_DEVICE",
+                    INT2NUM(VIR_ERR_NO_NODE_DEVICE));
+#endif
+#if HAVE_CONST_VIR_ERR_NO_SECURITY_MODEL
+    rb_define_const(e_Error, "ERR_NO_SECURITY_MODEL",
+                    INT2NUM(VIR_ERR_NO_SECURITY_MODEL));
+#endif
+#if HAVE_CONST_VIR_ERR_OPERATION_INVALID
+    rb_define_const(e_Error, "ERR_OPERATION_INVALID",
+                    INT2NUM(VIR_ERR_OPERATION_INVALID));
+#endif
+#if HAVE_TYPE_VIRINTERFACEPTR
+    rb_define_const(e_Error, "WAR_NO_INTERFACE", INT2NUM(VIR_WAR_NO_INTERFACE));
+    rb_define_const(e_Error, "ERR_NO_INTERFACE", INT2NUM(VIR_ERR_NO_INTERFACE));
+    rb_define_const(e_Error, "ERR_INVALID_INTERFACE",
+                    INT2NUM(VIR_ERR_INVALID_INTERFACE));
+    rb_define_const(e_Error, "ERR_MULTIPLE_INTERFACES",
+                    INT2NUM(VIR_ERR_MULTIPLE_INTERFACES));
+#endif
+#if HAVE_TYPE_VIRNWFILTERPTR
+    rb_define_const(e_Error, "WAR_NO_NWFILTER", INT2NUM(VIR_WAR_NO_NWFILTER));
+    rb_define_const(e_Error, "ERR_INVALID_NWFILTER",
+                    INT2NUM(VIR_ERR_INVALID_NWFILTER));
+    rb_define_const(e_Error, "ERR_NO_NWFILTER", INT2NUM(VIR_ERR_NO_NWFILTER));
+    rb_define_const(e_Error, "ERR_BUILD_FIREWALL",
+                    INT2NUM(VIR_ERR_BUILD_FIREWALL));
+#endif
+#if HAVE_TYPE_VIRSECRETPTR
+    rb_define_const(e_Error, "WAR_NO_SECRET", INT2NUM(VIR_WAR_NO_SECRET));
+    rb_define_const(e_Error, "ERR_INVALID_SECRET",
+                    INT2NUM(VIR_ERR_INVALID_SECRET));
+    rb_define_const(e_Error, "ERR_NO_SECRET", INT2NUM(VIR_ERR_NO_SECRET));
+#endif
+#if HAVE_CONST_VIR_ERR_CONFIG_UNSUPPORTED
+    rb_define_const(e_Error, "ERR_CONFIG_UNSUPPORTED",
+                    INT2NUM(VIR_ERR_CONFIG_UNSUPPORTED));
+#endif
+#if HAVE_CONST_VIR_ERR_OPERATION_TIMEOUT
+    rb_define_const(e_Error, "ERR_OPERATION_TIMEOUT",
+                    INT2NUM(VIR_ERR_OPERATION_TIMEOUT));
+#endif
+#if HAVE_CONST_VIR_ERR_MIGRATE_PERSIST_FAILED
+    rb_define_const(e_Error, "ERR_MIGRATE_PERSIST_FAILED",
+                    INT2NUM(VIR_ERR_MIGRATE_PERSIST_FAILED));
+#endif
+#if HAVE_CONST_VIR_ERR_HOOK_SCRIPT_FAILED
+    rb_define_const(e_Error, "ERR_HOOK_SCRIPT_FAILED",
+                    INT2NUM(VIR_ERR_HOOK_SCRIPT_FAILED));
+#endif
+#if HAVE_TYPE_VIRDOMAINSNAPSHOTPTR
+    rb_define_const(e_Error, "ERR_INVALID_DOMAIN_SNAPSHOT",
+                    INT2NUM(VIR_ERR_INVALID_DOMAIN_SNAPSHOT));
+    rb_define_const(e_Error, "ERR_NO_DOMAIN_SNAPSHOT",
+                    INT2NUM(VIR_ERR_NO_DOMAIN_SNAPSHOT));
 #endif
 
-    /*
-     * Class Libvirt::Connect::Nodeinfo
-     */
-    c_node_info = rb_define_class_under(c_connect, "Nodeinfo", rb_cObject);
-    rb_define_attr(c_node_info, "model", 1, 0);
-    rb_define_attr(c_node_info, "memory", 1, 0);
-    rb_define_attr(c_node_info, "cpus", 1, 0);
-    rb_define_attr(c_node_info, "mhz", 1, 0);
-    rb_define_attr(c_node_info, "nodes", 1, 0);
-    rb_define_attr(c_node_info, "sockets", 1, 0);
-    rb_define_attr(c_node_info, "cores", 1, 0);
-    rb_define_attr(c_node_info, "threads", 1, 0);
+    /* libvirt levels */
+    rb_define_const(e_Error, "LEVEL_NONE", INT2NUM(VIR_ERR_NONE));
+    rb_define_const(e_Error, "LEVEL_WARNING", INT2NUM(VIR_ERR_WARNING));
+    rb_define_const(e_Error, "LEVEL_ERROR", INT2NUM(VIR_ERR_ERROR));
 
-    /*
-     * Class Libvirt::Domain
-     */
-    c_domain = rb_define_class_under(m_libvirt, "Domain", rb_cObject);
-#define DEF_DOMSTATE(name) \
-    rb_define_const(c_domain, #name, INT2NUM(VIR_DOMAIN_##name))
-    /* virDomainState */
-    DEF_DOMSTATE(NOSTATE);
-    DEF_DOMSTATE(RUNNING);
-    DEF_DOMSTATE(BLOCKED);
-    DEF_DOMSTATE(PAUSED);
-    DEF_DOMSTATE(SHUTDOWN);
-    DEF_DOMSTATE(SHUTOFF);
-    DEF_DOMSTATE(CRASHED);
-#undef DEF_DOMSTATE
-
-    rb_define_method(c_domain, "migrate", libvirt_dom_migrate, 5);
-    rb_define_attr(c_domain, "connection", 1, 0);
-    rb_define_method(c_domain, "shutdown", libvirt_dom_shutdown, 0);
-    rb_define_method(c_domain, "reboot", libvirt_dom_reboot, -1);
-    rb_define_method(c_domain, "destroy", libvirt_dom_destroy, 0);
-    rb_define_method(c_domain, "suspend", libvirt_dom_suspend, 0);
-    rb_define_method(c_domain, "resume", libvirt_dom_resume, 0);
-    rb_define_method(c_domain, "save", libvirt_dom_save, 1);
-    rb_define_singleton_method(c_domain, "restore", libvirt_dom_s_restore, 2);
-    rb_define_method(c_domain, "core_dump", libvirt_dom_core_dump, -1);
-    rb_define_method(c_domain, "info", libvirt_dom_info, 0);
-    rb_define_method(c_domain, "name", libvirt_dom_name, 0);
-    rb_define_method(c_domain, "id", libvirt_dom_id, 0);
-    rb_define_method(c_domain, "uuid", libvirt_dom_uuid, 0);
-    rb_define_method(c_domain, "os_type", libvirt_dom_os_type, 0);
-    rb_define_method(c_domain, "max_memory", libvirt_dom_max_memory, 0);
-    rb_define_method(c_domain, "max_memory=", libvirt_dom_max_memory_set, 1);
-    rb_define_method(c_domain, "memory=", libvirt_dom_memory_set, 1);
-    rb_define_method(c_domain, "max_vcpus", libvirt_dom_max_vcpus, 0);
-    rb_define_method(c_domain, "vcpus=", libvirt_dom_vcpus_set, 1);
-    rb_define_method(c_domain, "pin_vcpu", libvirt_dom_pin_vcpu, 2);
-    rb_define_method(c_domain, "xml_desc", libvirt_dom_xml_desc, -1);
-    rb_define_method(c_domain, "undefine", libvirt_dom_undefine, 0);
-    rb_define_method(c_domain, "create", libvirt_dom_create, 0);
-    rb_define_method(c_domain, "autostart", libvirt_dom_autostart, 0);
-    rb_define_method(c_domain, "autostart=", libvirt_dom_autostart_set, 1);
-    rb_define_method(c_domain, "free", libvirt_dom_free, 0);
-
-    /*
-     * Class Libvirt::Domain::Info
-     */
-    c_domain_info = rb_define_class_under(c_domain, "Info", rb_cObject);
-    rb_define_attr(c_domain_info, "state", 1, 0);
-    rb_define_attr(c_domain_info, "max_mem", 1, 0);
-    rb_define_attr(c_domain_info, "memory", 1, 0);
-    rb_define_attr(c_domain_info, "nr_virt_cpu", 1, 0);
-    rb_define_attr(c_domain_info, "cpu_time", 1, 0);
-
-    /*
-     * Class Libvirt::Network
-     */
-#if HAVE_TYPE_VIRNETWORKPTR
-    c_network = rb_define_class_under(m_libvirt, "Network", rb_cObject);
-    rb_define_attr(c_network, "connection", 1, 0);
-    rb_define_method(c_network, "undefine", libvirt_netw_undefine, 0);
-    rb_define_method(c_network, "create", libvirt_netw_create, 0);
-    rb_define_method(c_network, "destroy", libvirt_netw_destroy, 0);
-    rb_define_method(c_network, "name", libvirt_netw_name, 0);
-    rb_define_method(c_network, "uuid", libvirt_netw_uuid, 0);
-    rb_define_method(c_network, "xml_desc", libvirt_netw_xml_desc, -1);
-    rb_define_method(c_network, "bridge_name", libvirt_netw_bridge_name, 0);
-    rb_define_method(c_network, "autostart", libvirt_netw_autostart, 0);
-    rb_define_method(c_network, "autostart=", libvirt_netw_autostart_set, 1);
-    rb_define_method(c_network, "free", libvirt_netw_free, 0);
+    rb_define_module_function(m_libvirt, "version", libvirt_version, -1);
+    rb_define_module_function(m_libvirt, "open", libvirt_open, -1);
+    rb_define_module_function(m_libvirt, "open_read_only",
+                              libvirt_open_read_only, -1);
+#if HAVE_VIRCONNECTOPENAUTH
+    rb_define_module_function(m_libvirt, "open_auth", libvirt_open_auth, -1);
 #endif
 
+#if HAVE_VIREVENTREGISTERIMPL
+    rb_define_const(m_libvirt, "EVENT_HANDLE_READABLE",
+                    INT2NUM(VIR_EVENT_HANDLE_READABLE));
+    rb_define_const(m_libvirt, "EVENT_HANDLE_WRITABLE",
+                    INT2NUM(VIR_EVENT_HANDLE_WRITABLE));
+    rb_define_const(m_libvirt, "EVENT_HANDLE_ERROR",
+                    INT2NUM(VIR_EVENT_HANDLE_ERROR));
+    rb_define_const(m_libvirt, "EVENT_HANDLE_HANGUP",
+                    INT2NUM(VIR_EVENT_HANDLE_HANGUP));
+
+    /* since we are using globals, we have to register with the gc */
+    rb_global_variable(&add_handle);
+    rb_global_variable(&update_handle);
+    rb_global_variable(&remove_handle);
+    rb_global_variable(&add_timeout);
+    rb_global_variable(&update_timeout);
+    rb_global_variable(&remove_timeout);
+
+    rb_define_module_function(m_libvirt, "event_register_impl",
+                              libvirt_conn_event_register_impl, -1);
+    rb_define_module_function(m_libvirt, "event_invoke_handle_callback",
+                              libvirt_event_invoke_handle_callback, 4);
+    rb_define_module_function(m_libvirt, "event_invoke_timeout_callback",
+                              libvirt_event_invoke_timeout_callback, 2);
+#endif
+
+    init_connect();
     init_storage();
+    init_network();
+    init_nodedevice();
+    init_secret();
+    init_nwfilter();
+    init_interface();
+    init_domain();
+    init_stream();
 
-    r = virInitialize();
-    if (r < 0)
+    virSetErrorFunc(NULL, rubyLibvirtErrorFunc);
+
+    if (virInitialize() < 0)
         rb_raise(rb_eSystemCallError, "virInitialize failed");
 }
-
-/*
- * Local variables:
- *  indent-tabs-mode: nil
- *  c-indent-level: 4
- *  c-basic-offset: 4
- *  tab-width: 4
- * End:
- */
