@@ -1,3 +1,15 @@
+ruby-libvirt (0.4.0-1) unstable; urgency=low
+
+  [ Laurent Bigonville ]
+  * [7bf70ba] New upstream version 0.4.0 (Closes: #587906)
+  * [4649357] debian/watch: Add watch file
+  * [479b0c9] Switch to dpkg-source 3.0 (quilt) format
+  * [6c228a1] Switch to new ruby policy
+  * [61d821b] Add debian/gbp.conf file
+  * [e9ff89d] debian/copyright: Update and use Dep-5 policy
+
+ -- Guido Günther <agx@sigxcpu.org>  Tue, 07 Feb 2012 19:52:22 +0100
+
 ruby-libvirt (0.0.7-1) unstable; urgency=low
 
   * Initial release (Closes: #501999)
