@@ -1,18 +1,22 @@
 Source: ruby-libvirt
-Section: libs
-Priority: extra
+Section: ruby
+Priority: optional
 Maintainer: Debian Libvirt Maintainers <pkg-libvirt-maintainers@lists.alioth.debian.org>
 Uploaders: Guido Günther <agx@sigxcpu.org>
-Build-Depends: cdbs, debhelper (>= 7), ruby-pkg-tools, rake, ruby1.8-dev,
- rubygems, libvirt-dev, pkg-config
-Standards-Version: 3.8.0
+Build-Depends: debhelper (>= 7.0.50~), gem2deb (>= 0.2.13~), libvirt-dev, pkg-config
+Standards-Version: 3.9.2
+Vcs-Git: git://anonscm.debian.org/git/pkg-libvirt/ruby-libvirt.git
+Vcs-Browser: http://anonscm.debian.org/gitweb/?p=pkg-libvirt/ruby-libvirt.git;a=summary
 Homepage: http://libvirt.org/ruby/
-Vcs-Git: git://git.debian.org/git/pkg-libvirt/ovirt/ruby-libvirt.git
-Vcs-Browser: http://git.debian.org/git/pkg-libvirt/ovirt/ruby-libvirt.git
+XS-Ruby-Versions: all
 
-Package: libvirt-ruby
-Architecture: all
-Depends: libvirt-ruby1.8
+Package: ruby-libvirt
+Architecture: any
+XB-Ruby-Versions: ${ruby:Versions}
+Depends: ${shlibs:Depends}, ${misc:Depends}, ruby | ruby-interpreter
+Replaces: libvirt-ruby (<< 0.4.0-1~), libvirt-ruby1.8 (<< 0.4.0-1~)
+Breaks: libvirt-ruby (<< 0.4.0-1~), libvirt-ruby1.8 (<< 0.4.0-1~)
+Provides: libvirt-ruby, libvirt-ruby1.8
 Description: Ruby bindings for libvirt
  This library provides Ruby bindings for using libvirt.
  .
@@ -20,19 +24,22 @@ Description: Ruby bindings for libvirt
  of recent versions of Linux (and other OSes). The library aims at providing
  a long term stable C API for different virtualization mechanisms. It currently
  supports QEMU, KVM, and XEN.
- .
- This is a dependency package which depends on Debian's default Ruby version
- (currently 1.8).
+
+# Transitional packages
+Package: libvirt-ruby
+Section: oldlibs
+Priority: extra
+Architecture: all
+Depends: ${misc:Depends}, ruby-libvirt
+Description: Transitional package for ruby-libvirt
+ This is a transitional package to ease upgrades to the ruby-libvirt
+ package. It can safely be removed.
 
 Package: libvirt-ruby1.8
-Architecture: any
-Depends: ${shlibs:Depends}
-Description: Ruby bindings for libvirt
- This library provides Ruby bindings for using libvirt.
- .
- Libvirt is a toolkit to interact with the virtualization capabilities
- of recent versions of Linux (and other OSes). The library aims at providing
- a long term stable C API for different virtualization mechanisms. It currently
- supports QEMU, KVM, and XEN.
- .
- This package is built for Ruby 1.8.
+Section: oldlibs
+Priority: extra
+Architecture: all
+Depends: ${misc:Depends}, ruby-libvirt
+Description: Transitional package for ruby-libvirt
+ This is a transitional package to ease upgrades to the ruby-libvirt
+ package. It can safely be removed.

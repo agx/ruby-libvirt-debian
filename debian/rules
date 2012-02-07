@@ -1,20 +1,5 @@
 #!/usr/bin/make -f
+#export DH_VERBOSE=1
 
-include /usr/share/cdbs/1/rules/debhelper.mk
-include /usr/share/ruby-pkg-tools/1/class/ruby-common.mk
-
-cdbs_pkgdir = $(CURDIR)/debian/tmp
-cdbs_ruby_libdir_ver = $(cdbs_pkgdir)$(DEB_RUBY_LIBDIR)
-cdbs_ruby_archdir_ver = $(cdbs_pkgdir)$(DEB_RUBY_ARCHDIR)
-DEB_RUBY_INSTALL_ARGS = DESTDIR=$(cdbs_pkgdir) \
-                        sitelibdir=$(cdbs_ruby_libdir_ver) \
-                        sitearchdir=$(cdbs_ruby_archdir_ver)
-
-DEB_RUBY_SETUP_ARGS = --with-cflags="$(CFLAGS)" --with-ldflags="$(LDFLAGS)"
-
-common-build-arch::
-	rake build
-
-clean::
-	rm -f ext/libvirt/_libvirt.o ext/libvirt/_libvirt.so \
-	      ext/libvirt/Makefile ext/libvirt/mkmf.log
+%:
+	dh $@ --buildsystem=ruby --with ruby
