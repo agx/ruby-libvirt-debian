@@ -7,6 +7,8 @@ $: << File.dirname(__FILE__)
 require 'libvirt'
 require 'test_utils.rb'
 
+set_test_object("nodedevice")
+
 conn = Libvirt::open("qemu:///system")
 
 # TESTGROUP: nodedevice.name
@@ -43,7 +45,13 @@ expect_success(testnode, "no args", "xml_desc")
 # TESTGROUP: nodedevice.detach
 testnode = conn.lookup_nodedevice_by_name(conn.list_nodedevices[0])
 
-expect_too_many_args(testnode, "detach", 1)
+expect_too_many_args(testnode, "detach", 1, 2, 3)
+expect_invalid_arg_type(testnode, "detach", 1)
+expect_invalid_arg_type(testnode, "detach", [])
+expect_invalid_arg_type(testnode, "detach", {})
+expect_invalid_arg_type(testnode, "detach", nil, 'foo')
+expect_invalid_arg_type(testnode, "detach", nil, [])
+expect_invalid_arg_type(testnode, "detach", nil, {})
 
 #expect_success(testnode, "no args", "detach")
 
@@ -74,6 +82,8 @@ testnode = conn.lookup_nodedevice_by_name(conn.list_nodedevices[0])
 expect_too_many_args(testnode, "free", 1)
 
 expect_success(testnode, "no args", "free")
+
+# END TESTS
 
 conn.close
 

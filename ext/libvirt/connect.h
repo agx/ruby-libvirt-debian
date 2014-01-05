@@ -1,11 +1,12 @@
 #ifndef CONNECT_H
 #define CONNECT_H
 
-void init_connect();
+void ruby_libvirt_connect_init(void);
 
-virConnectPtr conn(VALUE s);
-VALUE connect_new(virConnectPtr p);
-virConnectPtr connect_get(VALUE s);
-VALUE conn_attr(VALUE s);
+VALUE ruby_libvirt_connect_new(virConnectPtr p);
+virConnectPtr ruby_libvirt_connect_get(VALUE s);
+VALUE ruby_libvirt_conn_attr(VALUE s);
+
+extern VALUE c_node_security_model;
 
 #endif

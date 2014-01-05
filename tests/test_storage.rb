@@ -7,6 +7,8 @@ $: << File.dirname(__FILE__)
 require 'libvirt'
 require 'test_utils.rb'
 
+set_test_object("storage_pool")
+
 conn = Libvirt::open("qemu:///system")
 
 begin
@@ -18,7 +20,7 @@ rescue
 end
 
 # test setup
-`rm -rf #{$POOL_PATH}; mkdir #{$POOL_PATH} ; echo $?`
+`rm -rf #{$POOL_PATH}; mkdir -p #{$POOL_PATH} ; echo $?`
 
 new_storage_vol_xml = <<EOF
 <volume>
@@ -98,9 +100,10 @@ expect_invalid_arg_type(newpool, "delete", 'foo')
 
 expect_success(newpool, "no args", "delete")
 
-`mkdir /tmp/ruby-libvirt-tester`
+`mkdir -p /tmp/ruby-libvirt-tester`
 
 newpool.undefine
+`mkdir -p #{$POOL_PATH}`
 
 # TESTGROUP: pool.refresh
 newpool = conn.create_storage_pool_xml($new_storage_pool_xml)
@@ -172,16 +175,16 @@ expect_invalid_arg_type(newpool, "autostart=", 1234)
 
 expect_success(newpool, "no args", "autostart=", true)
 if not newpool.autostart?
-  puts_fail "pool.autostart= did not set autostart to true"
+  puts_fail "storage_pool.autostart= did not set autostart to true"
 else
-  puts_ok "pool.autostart= set autostart to true"
+  puts_ok "storage_pool.autostart= set autostart to true"
 end
 
 expect_success(newpool, "no args", "autostart=", false)
 if newpool.autostart?
-  puts_fail "pool.autostart= did not set autostart to false"
+  puts_fail "storage_pool.autostart= did not set autostart to false"
 else
-  puts_ok "pool.autostart= set autostart to false"
+  puts_ok "storage_pool.autostart= set autostart to false"
 end
 
 newpool.undefine
@@ -201,7 +204,10 @@ newpool = conn.create_storage_pool_xml($new_storage_pool_xml)
 expect_too_many_args(newpool, "list_volumes", 1)
 
 expect_success(newpool, "no args", "list_volumes")
+newvol = newpool.create_volume_xml(new_storage_vol_xml)
+expect_success(newpool, "no args", "list_volumes")
 
+newvol.delete
 newpool.destroy
 
 # TESTGROUP: pool.free
@@ -252,28 +258,6 @@ expect_invalid_arg_type(newpool, "lookup_volume_by_path", nil);
 expect_fail(newpool, Libvirt::RetrieveError, "non-existent path arg", "lookup_volume_by_path", "foobarbazsucker")
 
 expect_success(newpool, "name arg", "lookup_volume_by_path", newvol.path)
-
-newvol.delete
-newpool.destroy
-
-# TESTGROUP: vol.name
-newpool = conn.create_storage_pool_xml($new_storage_pool_xml)
-newvol = newpool.create_volume_xml(new_storage_vol_xml)
-
-expect_too_many_args(newvol, "name", 1)
-
-expect_success(newvol, "no args", "name")
-
-newvol.delete
-newpool.destroy
-
-# TESTGROUP: vol.key
-newpool = conn.create_storage_pool_xml($new_storage_pool_xml)
-newvol = newpool.create_volume_xml(new_storage_vol_xml)
-
-expect_too_many_args(newvol, "key", 1)
-
-expect_success(newvol, "no args", "key")
 
 newvol.delete
 newpool.destroy
@@ -350,6 +334,43 @@ expect_success(newpool, "no args", "persistent?") {|x| x == true}
 
 newpool.undefine
 
+# TESTGROUP:
+newpool = conn.create_storage_pool_xml($new_storage_pool_xml)
+sleep 1
+
+expect_too_many_args(newpool, "list_all_volumes", 1, 2)
+expect_invalid_arg_type(newpool, "list_all_volumes", 'foo')
+expect_invalid_arg_type(newpool, "list_all_volumes", [])
+expect_invalid_arg_type(newpool, "list_all_volumes", {})
+
+expect_success(newpool, "no args", "list_all_volumes")
+
+newpool.destroy
+
+set_test_object("storage_volume")
+
+# TESTGROUP: vol.name
+newpool = conn.create_storage_pool_xml($new_storage_pool_xml)
+newvol = newpool.create_volume_xml(new_storage_vol_xml)
+
+expect_too_many_args(newvol, "name", 1)
+
+expect_success(newvol, "no args", "name")
+
+newvol.delete
+newpool.destroy
+
+# TESTGROUP: vol.key
+newpool = conn.create_storage_pool_xml($new_storage_pool_xml)
+newvol = newpool.create_volume_xml(new_storage_vol_xml)
+
+expect_too_many_args(newvol, "key", 1)
+
+expect_success(newvol, "no args", "key")
+
+newvol.delete
+newpool.destroy
+
 # TESTGROUP: vol.delete
 newpool = conn.create_storage_pool_xml($new_storage_pool_xml)
 newvol = newpool.create_volume_xml(new_storage_vol_xml)
@@ -417,6 +438,89 @@ expect_too_many_args(newvol, "free", 1)
 expect_success(newvol, "no args", "free")
 
 newpool.destroy
+
+# TESTGROUP: vol.download
+newpool = conn.create_storage_pool_xml($new_storage_pool_xml)
+newvol = newpool.create_volume_xml(new_storage_vol_xml)
+stream = conn.stream
+
+expect_too_many_args(newvol, "download", 1, 2, 3, 4, 5)
+expect_too_few_args(newvol, "download")
+expect_too_few_args(newvol, "download", 1)
+expect_too_few_args(newvol, "download", 1, 2)
+expect_invalid_arg_type(newvol, "download", nil, 1, 1)
+expect_invalid_arg_type(newvol, "download", 'foo', 1, 1)
+expect_invalid_arg_type(newvol, "download", 1, 1, 1)
+expect_invalid_arg_type(newvol, "download", [], 1, 1)
+expect_invalid_arg_type(newvol, "download", {}, 1, 1)
+expect_invalid_arg_type(newvol, "download", stream, nil, 1)
+expect_invalid_arg_type(newvol, "download", stream, 'foo', 1)
+expect_invalid_arg_type(newvol, "download", stream, [], 1)
+expect_invalid_arg_type(newvol, "download", stream, {}, 1)
+expect_invalid_arg_type(newvol, "download", stream, 1, nil)
+expect_invalid_arg_type(newvol, "download", stream, 1, 'foo')
+expect_invalid_arg_type(newvol, "download", stream, 1, [])
+expect_invalid_arg_type(newvol, "download", stream, 1, {})
+expect_invalid_arg_type(newvol, "download", stream, 1, 1, 'foo')
+expect_invalid_arg_type(newvol, "download", stream, 1, 1, [])
+expect_invalid_arg_type(newvol, "download", stream, 1, 1, {})
+
+expect_success(newvol, "stream, offset, and length args", "download", stream, 0, 10)
+
+newvol.delete
+newpool.destroy
+
+# TESTGROUP: vol.upload
+newpool = conn.create_storage_pool_xml($new_storage_pool_xml)
+newvol = newpool.create_volume_xml(new_storage_vol_xml)
+stream = conn.stream
+
+expect_too_many_args(newvol, "upload", 1, 2, 3, 4, 5)
+expect_too_few_args(newvol, "upload")
+expect_too_few_args(newvol, "upload", 1)
+expect_too_few_args(newvol, "upload", 1, 2)
+expect_invalid_arg_type(newvol, "upload", nil, 1, 1)
+expect_invalid_arg_type(newvol, "upload", 'foo', 1, 1)
+expect_invalid_arg_type(newvol, "upload", 1, 1, 1)
+expect_invalid_arg_type(newvol, "upload", [], 1, 1)
+expect_invalid_arg_type(newvol, "upload", {}, 1, 1)
+expect_invalid_arg_type(newvol, "upload", stream, nil, 1)
+expect_invalid_arg_type(newvol, "upload", stream, 'foo', 1)
+expect_invalid_arg_type(newvol, "upload", stream, [], 1)
+expect_invalid_arg_type(newvol, "upload", stream, {}, 1)
+expect_invalid_arg_type(newvol, "upload", stream, 1, nil)
+expect_invalid_arg_type(newvol, "upload", stream, 1, 'foo')
+expect_invalid_arg_type(newvol, "upload", stream, 1, [])
+expect_invalid_arg_type(newvol, "upload", stream, 1, {})
+expect_invalid_arg_type(newvol, "upload", stream, 1, 1, 'foo')
+expect_invalid_arg_type(newvol, "upload", stream, 1, 1, [])
+expect_invalid_arg_type(newvol, "upload", stream, 1, 1, {})
+
+expect_success(newvol, "stream, offset, and length args", "upload", stream, 0, 10)
+
+newvol.delete
+newpool.destroy
+
+# TESTGROUP: vol.upload
+newpool = conn.create_storage_pool_xml($new_storage_pool_xml)
+newvol = newpool.create_volume_xml(new_storage_vol_xml)
+
+expect_too_many_args(newvol, "wipe_pattern", 1, 2, 3)
+expect_too_few_args(newvol, "wipe_pattern")
+expect_invalid_arg_type(newvol, "wipe_pattern", nil)
+expect_invalid_arg_type(newvol, "wipe_pattern", 'foo')
+expect_invalid_arg_type(newvol, "wipe_pattern", [])
+expect_invalid_arg_type(newvol, "wipe_pattern", {})
+expect_invalid_arg_type(newvol, "wipe_pattern", 0, 'foo')
+expect_invalid_arg_type(newvol, "wipe_pattern", 0, [])
+expect_invalid_arg_type(newvol, "wipe_pattern", 0, {})
+
+expect_success(newvol, "alg arg", "wipe_pattern", Libvirt::StorageVol::WIPE_ALG_ZERO)
+
+newvol.delete
+newpool.destroy
+
+# END TESTS
 
 conn.close
 

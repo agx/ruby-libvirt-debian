@@ -2,6 +2,7 @@
  * secret.c: virSecret methods
  *
  * Copyright (C) 2010 Red Hat Inc.
+ * Copyright (C) 2013 Chris Lalancette <clalancette@gmail.com>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -28,135 +29,172 @@
 #if HAVE_TYPE_VIRSECRETPTR
 static VALUE c_secret;
 
-static void secret_free(void *s) {
-    generic_free(Secret, s);
+static void secret_free(void *s)
+{
+    ruby_libvirt_free_struct(Secret, s);
 }
 
-static virSecretPtr secret_get(VALUE s) {
-    generic_get(Secret, s);
+static virSecretPtr secret_get(VALUE s)
+{
+    ruby_libvirt_get_struct(Secret, s);
 }
 
-VALUE secret_new(virSecretPtr s, VALUE conn) {
-    return generic_new(c_secret, s, conn, secret_free);
+VALUE ruby_libvirt_secret_new(virSecretPtr s, VALUE conn)
+{
+    return ruby_libvirt_new_class(c_secret, s, conn, secret_free);
 }
 
 /*
  * call-seq:
  *   secret.uuid -> string
  *
- * Call +virSecretGetUUIDString+[http://www.libvirt.org/html/libvirt-libvirt.html#virSecretGetUUIDString]
+ * Call virSecretGetUUIDString[http://www.libvirt.org/html/libvirt-libvirt.html#virSecretGetUUIDString]
  * to retrieve the UUID for this secret.
  */
-static VALUE libvirt_secret_uuid(VALUE s) {
-    virSecretPtr secret = secret_get(s);
-    int r;
-    char uuid[VIR_UUID_STRING_BUFLEN];
-
-    r = virSecretGetUUIDString(secret, uuid);
-    _E(r < 0, create_error(e_RetrieveError, "virSecretGetUUIDString", conn(s)));
-
-    return rb_str_new2((char *)uuid);
+static VALUE libvirt_secret_uuid(VALUE s)
+{
+    ruby_libvirt_generate_uuid(virSecretGetUUIDString,
+                               ruby_libvirt_connect_get(s), secret_get(s));
 }
 
 /*
  * call-seq:
  *   secret.usagetype -> fixnum
  *
- * Call +virSecretGetUsageType+[http://www.libvirt.org/html/libvirt-libvirt.html#virSecretGetUsageType]
+ * Call virSecretGetUsageType[http://www.libvirt.org/html/libvirt-libvirt.html#virSecretGetUsageType]
  * to retrieve the usagetype for this secret.
  */
-static VALUE libvirt_secret_usagetype(VALUE s) {
-    gen_call_int(virSecretGetUsageType, conn(s), secret_get(s));
+static VALUE libvirt_secret_usagetype(VALUE s)
+{
+    ruby_libvirt_generate_call_int(virSecretGetUsageType,
+                                   ruby_libvirt_connect_get(s),
+                                   secret_get(s));
 }
 
 /*
  * call-seq:
  *   secret.usageid -> string
  *
- * Call +virSecretGetUsageID+[http://www.libvirt.org/html/libvirt-libvirt.html#virSecretGetUsageID]
+ * Call virSecretGetUsageID[http://www.libvirt.org/html/libvirt-libvirt.html#virSecretGetUsageID]
  * to retrieve the usageid for this secret.
  */
-static VALUE libvirt_secret_usageid(VALUE s) {
-    gen_call_string(virSecretGetUsageID, conn(s), 0, secret_get(s));
+static VALUE libvirt_secret_usageid(VALUE s)
+{
+    ruby_libvirt_generate_call_string(virSecretGetUsageID,
+                                      ruby_libvirt_connect_get(s), 0,
+                                      secret_get(s));
 }
 
 /*
  * call-seq:
  *   secret.xml_desc(flags=0) -> string
  *
- * Call +virSecretGetXMLDesc+[http://www.libvirt.org/html/libvirt-libvirt.html#virSecretGetXMLDesc]
+ * Call virSecretGetXMLDesc[http://www.libvirt.org/html/libvirt-libvirt.html#virSecretGetXMLDesc]
  * to retrieve the XML for this secret.
  */
-static VALUE libvirt_secret_xml_desc(int argc, VALUE *argv, VALUE s) {
+static VALUE libvirt_secret_xml_desc(int argc, VALUE *argv, VALUE s)
+{
     VALUE flags;
 
     rb_scan_args(argc, argv, "01", &flags);
 
-    if (NIL_P(flags))
-        flags = INT2NUM(0);
-
-    gen_call_string(virSecretGetXMLDesc, conn(s), 1, secret_get(s),
-                    NUM2UINT(flags));
+    ruby_libvirt_generate_call_string(virSecretGetXMLDesc,
+                                      ruby_libvirt_connect_get(s), 1,
+                                      secret_get(s),
+                                      ruby_libvirt_value_to_uint(flags));
 }
 
 /*
  * call-seq:
  *   secret.set_value(value, flags=0) -> nil
  *
- * Call +virSecretSetValue+[http://www.libvirt.org/html/libvirt-libvirt.html#virSecretSetValue]
- * to set a new value in this secret.
+ * Call virSecretSetValue[http://www.libvirt.org/html/libvirt-libvirt.html#virSecretSetValue]
+ * to set a new value in this secret.  Deprecated; use secret.value= instead.
  */
-static VALUE libvirt_secret_set_value(int argc, VALUE *argv, VALUE s) {
-    VALUE flags;
-    VALUE value;
+static VALUE libvirt_secret_set_value(int argc, VALUE *argv, VALUE s)
+{
+    VALUE flags, value;
 
     rb_scan_args(argc, argv, "11", &value, &flags);
 
-    if (NIL_P(flags))
-        flags = INT2NUM(0);
-
     StringValue(value);
 
-    gen_call_void(virSecretSetValue, conn(s), secret_get(s),
-                  (unsigned char *)RSTRING_PTR(value), RSTRING_LEN(value),
-                  NUM2UINT(flags));
+    ruby_libvirt_generate_call_nil(virSecretSetValue,
+                                   ruby_libvirt_connect_get(s),
+                                   secret_get(s),
+                                   (unsigned char *)RSTRING_PTR(value),
+                                   RSTRING_LEN(value),
+                                   ruby_libvirt_value_to_uint(flags));
 }
 
 /*
  * call-seq:
- *   secret.get_value(flags=0) -> string
+ *   secret.value = value,flags=0
  *
- * Call +virSecretGetValue+[http://www.libvirt.org/html/libvirt-libvirt.html#virSecretGetValue]
+ * Call virSecretSetValue[http://www.libvirt.org/html/libvirt-libvirt.html#virSecretSetValue]
+ * to set a new value in this secret.
+ */
+static VALUE libvirt_secret_value_equal(VALUE s, VALUE in)
+{
+    VALUE flags, value;
+
+    if (TYPE(in) == T_STRING) {
+        value = in;
+        flags = INT2NUM(0);
+    }
+    else if (TYPE(in) == T_ARRAY) {
+        if (RARRAY_LEN(in) != 2) {
+            rb_raise(rb_eArgError, "wrong number of arguments (%ld for 2)",
+                     RARRAY_LEN(in));
+        }
+        value = rb_ary_entry(in, 0);
+        flags = rb_ary_entry(in, 1);
+    }
+    else {
+        rb_raise(rb_eTypeError,
+                 "wrong argument type (expected Number or Array)");
+    }
+
+    StringValue(value);
+
+    ruby_libvirt_generate_call_nil(virSecretSetValue,
+                                   ruby_libvirt_connect_get(s),
+                                   secret_get(s),
+                                   (unsigned char *)RSTRING_PTR(value),
+                                   RSTRING_LEN(value), NUM2UINT(flags));
+}
+
+/*
+ * call-seq:
+ *   secret.value(flags=0) -> string
+ *
+ * Call virSecretGetValue[http://www.libvirt.org/html/libvirt-libvirt.html#virSecretGetValue]
  * to retrieve the value from this secret.
  */
-static VALUE libvirt_secret_get_value(int argc, VALUE *argv, VALUE s) {
-    virSecretPtr secret = secret_get(s);
-    VALUE flags;
+static VALUE libvirt_secret_value(int argc, VALUE *argv, VALUE s)
+{
+    VALUE flags, ret;
     unsigned char *val;
     size_t value_size;
-    VALUE ret;
     int exception = 0;
-    struct rb_str_new_arg args;
+    struct ruby_libvirt_str_new_arg args;
 
     rb_scan_args(argc, argv, "01", &flags);
 
-    if (NIL_P(flags))
-        flags = INT2NUM(0);
+    val = virSecretGetValue(secret_get(s), &value_size,
+                            ruby_libvirt_value_to_uint(flags));
 
-    val = virSecretGetValue(secret, &value_size, NUM2UINT(flags));
-
-    _E(val == NULL, create_error(e_RetrieveError, "virSecretGetValue",
-                                 conn(s)));
+    ruby_libvirt_raise_error_if(val == NULL, e_RetrieveError,
+                                "virSecretGetValue",
+                                ruby_libvirt_connect_get(s));
 
     args.val = (char *)val;
     args.size = value_size;
-    ret = rb_protect(rb_str_new_wrap, (VALUE)&args, &exception);
+    ret = rb_protect(ruby_libvirt_str_new_wrap, (VALUE)&args, &exception);
+    free(val);
     if (exception) {
-        free(val);
         rb_jump_tag(exception);
     }
-
-    free(val);
 
     return ret;
 }
@@ -165,22 +203,26 @@ static VALUE libvirt_secret_get_value(int argc, VALUE *argv, VALUE s) {
  * call-seq:
  *   secret.undefine -> nil
  *
- * Call +virSecretUndefine+[http://www.libvirt.org/html/libvirt-libvirt.html#virSecretUndefine]
+ * Call virSecretUndefine[http://www.libvirt.org/html/libvirt-libvirt.html#virSecretUndefine]
  * to undefine this secret.
  */
-static VALUE libvirt_secret_undefine(VALUE s) {
-    gen_call_void(virSecretUndefine, conn(s), secret_get(s));
+static VALUE libvirt_secret_undefine(VALUE s)
+{
+    ruby_libvirt_generate_call_nil(virSecretUndefine,
+                                   ruby_libvirt_connect_get(s),
+                                   secret_get(s));
 }
 
 /*
  * call-seq:
  *   secret.free -> nil
  *
- * Call +virSecretFree+[http://www.libvirt.org/html/libvirt-libvirt.html#virSecretFree]
+ * Call virSecretFree[http://www.libvirt.org/html/libvirt-libvirt.html#virSecretFree]
  * to free this secret.  After this call the secret object is no longer valid.
  */
-static VALUE libvirt_secret_free(VALUE s) {
-    gen_call_free(Secret, s);
+static VALUE libvirt_secret_free(VALUE s)
+{
+    ruby_libvirt_generate_call_free(Secret, s);
 }
 
 #endif
@@ -188,14 +230,28 @@ static VALUE libvirt_secret_free(VALUE s) {
 /*
  * Class Libvirt::Secret
  */
-void init_secret()
+void ruby_libvirt_secret_init(void)
 {
 #if HAVE_TYPE_VIRSECRETPTR
     c_secret = rb_define_class_under(m_libvirt, "Secret", rb_cObject);
 
+    rb_define_attr(c_secret, "connection", 1, 0);
+
     rb_define_const(c_secret, "USAGE_TYPE_VOLUME",
                     INT2NUM(VIR_SECRET_USAGE_TYPE_VOLUME));
-    rb_define_attr(c_secret, "connection", 1, 0);
+
+#if HAVE_CONST_VIR_SECRET_USAGE_TYPE_CEPH
+    rb_define_const(c_secret, "USAGE_TYPE_CEPH",
+                    INT2NUM(VIR_SECRET_USAGE_TYPE_CEPH));
+#endif
+#if HAVE_CONST_VIR_SECRET_USAGE_TYPE_ISCSI
+    rb_define_const(c_secret, "USAGE_TYPE_ISCSI",
+                    INT2NUM(VIR_SECRET_USAGE_TYPE_ISCSI));
+#endif
+#if HAVE_CONST_VIR_SECRET_USAGE_TYPE_NONE
+    rb_define_const(c_secret, "USAGE_TYPE_NONE",
+                    INT2NUM(VIR_SECRET_USAGE_TYPE_NONE));
+#endif
 
     /* Secret object methods */
     rb_define_method(c_secret, "uuid", libvirt_secret_uuid, 0);
@@ -203,7 +259,9 @@ void init_secret()
     rb_define_method(c_secret, "usageid", libvirt_secret_usageid, 0);
     rb_define_method(c_secret, "xml_desc", libvirt_secret_xml_desc, -1);
     rb_define_method(c_secret, "set_value", libvirt_secret_set_value, -1);
-    rb_define_method(c_secret, "get_value", libvirt_secret_get_value, -1);
+    rb_define_method(c_secret, "value=", libvirt_secret_value_equal, 1);
+    rb_define_method(c_secret, "value", libvirt_secret_value, -1);
+    rb_define_alias(c_secret, "get_value", "value");
     rb_define_method(c_secret, "undefine", libvirt_secret_undefine, 0);
     rb_define_method(c_secret, "free", libvirt_secret_free, 0);
 #endif

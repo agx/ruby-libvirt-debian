@@ -2,6 +2,7 @@
 # Rakefile: build ruby libvirt bindings
 #
 # Copyright (C) 2007,2010 Red Hat, Inc.
+# Copyright (C) 2013 Chris Lalancette <clalancette@gmail.com>
 #
 # Distributed under the GNU Lesser General Public License v2.1 or later.
 # See COPYING for details
@@ -10,13 +11,17 @@
 
 # Rakefile for ruby-rpm -*- ruby -*-
 require 'rake/clean'
-require 'rake/rdoctask'
+begin
+  require 'rdoc/task'
+rescue LoadError
+  require 'rake/rdoctask'
+end
 require 'rake/testtask'
-require 'rake/gempackagetask'
+require 'rubygems/package_task'
 require 'rbconfig'
 
 PKG_NAME='ruby-libvirt'
-PKG_VERSION='0.4.0'
+PKG_VERSION='0.5.1'
 
 EXT_CONF='ext/libvirt/extconf.rb'
 MAKEFILE="ext/libvirt/Makefile"
@@ -29,11 +34,13 @@ LIBVIRT_SRC << MAKEFILE
 # Additional files for clean/clobber
 #
 
-CLEAN.include [ "ext/**/*.o", LIBVIRT_MODULE,
-                "ext/**/depend" ]
+CLEAN.include [ "ext/**/*.o", LIBVIRT_MODULE, "ext/**/depend", "ext/**/*.gcda",
+                "ext/**/*.gcno", "ext/**/*.gcov" ]
 
 CLOBBER.include [ "config.save", "ext/**/mkmf.log", "ext/**/extconf.h",
                   MAKEFILE ]
+
+task :default => :build
 
 #
 # Build locally
@@ -72,7 +79,7 @@ Rake::TestTask.new(:test) do |t|
                      'tests/test_interface.rb', 'tests/test_network.rb',
                      'tests/test_nodedevice.rb', 'tests/test_nwfilter.rb',
                      'tests/test_open.rb', 'tests/test_secret.rb',
-                     'tests/test_storage.rb' ]
+                     'tests/test_storage.rb', 'tests/test_stream.rb' ]
     t.libs = [ 'lib', 'ext/libvirt' ]
 end
 task :test => :build
@@ -139,9 +146,10 @@ SPEC = Gem::Specification.new do |s|
     s.author = "David Lutterkort, Chris Lalancette"
     s.rubyforge_project = "None"
     s.description = "Ruby bindings for libvirt."
+    s.license = "LGPLv2"
 end
 
-Rake::GemPackageTask.new(SPEC) do |pkg|
+Gem::PackageTask.new(SPEC) do |pkg|
     pkg.need_tar = true
     pkg.need_zip = true
 end

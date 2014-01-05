@@ -2,6 +2,7 @@
  * libvirt.c: Ruby bindings for libvirt
  *
  * Copyright (C) 2007,2010 Red Hat Inc.
+ * Copyright (C) 2013 Chris Lalancette <clalancette@gmail.com>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -23,6 +24,9 @@
 #include <ruby.h>
 #include <libvirt/libvirt.h>
 #include <libvirt/virterror.h>
+#if HAVE_VIRDOMAINLXCENTERSECURITYLABEL
+#include <libvirt/libvirt-lxc.h>
+#endif
 #include "extconf.h"
 #include "common.h"
 #include "storage.h"
@@ -47,97 +51,97 @@ VALUE e_Error;
 VALUE e_NoSupportError;
 
 /* custom error function to suppress libvirt printing to stderr */
-static void rubyLibvirtErrorFunc(void *userdata, virErrorPtr err){
+static void rubyLibvirtErrorFunc(void *RUBY_LIBVIRT_UNUSED(userdata),
+                                 virErrorPtr RUBY_LIBVIRT_UNUSED(err))
+{
 }
 
 /*
  * call-seq:
  *   Libvirt::version(type=nil) -> [ libvirt_version, type_version ]
  *
- * Call
- * +virGetVersion+[http://www.libvirt.org/html/libvirt-libvirt.html#virGetVersion]
+ * Call virGetVersion[http://www.libvirt.org/html/libvirt-libvirt.html#virGetVersion]
  * to get the version of libvirt and of the hypervisor TYPE.
  */
-static VALUE libvirt_version(int argc, VALUE *argv, VALUE m) {
-    unsigned long libVer;
-    VALUE type;
-    unsigned long typeVer;
+static VALUE libvirt_version(int argc, VALUE *argv,
+                             VALUE RUBY_LIBVIRT_UNUSED(m))
+{
+    unsigned long libVer, typeVer;
+    VALUE type, result, rargv[2];
     int r;
-    VALUE result, rargv[2];
 
     rb_scan_args(argc, argv, "01", &type);
 
-    r = virGetVersion(&libVer, get_string_or_nil(type), &typeVer);
-    _E(r < 0, create_error(rb_eArgError, "virGetVersion", NULL));
+    r = virGetVersion(&libVer, ruby_libvirt_get_cstring_or_null(type),
+                      &typeVer);
+    ruby_libvirt_raise_error_if(r < 0, rb_eArgError, "virGetVersion", NULL);
 
     result = rb_ary_new2(2);
     rargv[0] = rb_str_new2("libvirt");
     rargv[1] = ULONG2NUM(libVer);
-    rb_ary_push(result, rb_class_new_instance(2, rargv, c_libvirt_version));
+    rb_ary_store(result, 0, rb_class_new_instance(2, rargv, c_libvirt_version));
     rargv[0] = type;
     rargv[1] = ULONG2NUM(typeVer);
-    rb_ary_push(result, rb_class_new_instance(2, rargv, c_libvirt_version));
+    rb_ary_store(result, 1, rb_class_new_instance(2, rargv, c_libvirt_version));
     return result;
-}
-
-static VALUE internal_open(int argc, VALUE *argv, VALUE m, int readonly)
-{
-    VALUE uri;
-    char *uri_c;
-    virConnectPtr conn;
-
-    rb_scan_args(argc, argv, "01", &uri);
-
-    uri_c = get_string_or_nil(uri);
-
-    if (readonly)
-        conn = virConnectOpenReadOnly(uri_c);
-    else
-        conn = virConnectOpen(uri_c);
-
-    _E(conn == NULL, create_error(e_ConnectionError,
-                                  readonly ? "virConnectOpenReadOnly" : "virConnectOpen",
-                                  NULL));
-
-    return connect_new(conn);
 }
 
 /*
  * call-seq:
  *   Libvirt::open(uri=nil) -> Libvirt::Connect
  *
- * Call
- * +virConnectOpen+[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectOpen]
+ * Call virConnectOpen[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectOpen]
  * to open a connection to a URL.
  */
-static VALUE libvirt_open(int argc, VALUE *argv, VALUE m) {
-    return internal_open(argc, argv, m, 0);
+static VALUE libvirt_open(int argc, VALUE *argv, VALUE RUBY_LIBVIRT_UNUSED(m))
+{
+    VALUE uri;
+    virConnectPtr conn;
+
+    rb_scan_args(argc, argv, "01", &uri);
+
+    conn = virConnectOpen(ruby_libvirt_get_cstring_or_null(uri));
+    ruby_libvirt_raise_error_if(conn == NULL, e_ConnectionError,
+                                "virConnectOpen", NULL);
+
+    return ruby_libvirt_connect_new(conn);
 }
 
 /*
  * call-seq:
  *   Libvirt::open_read_only(uri=nil) -> Libvirt::Connect
  *
- * Call
- * +virConnectOpenReadOnly+[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectOpenReadOnly]
+ * Call virConnectOpenReadOnly[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectOpenReadOnly]
  * to open a read-only connection to a URL.
  */
-static VALUE libvirt_open_read_only(int argc, VALUE *argv, VALUE m) {
-    return internal_open(argc, argv, m, 1);
+static VALUE libvirt_open_read_only(int argc, VALUE *argv,
+                                    VALUE RUBY_LIBVIRT_UNUSED(m))
+{
+    VALUE uri;
+    virConnectPtr conn;
+
+    rb_scan_args(argc, argv, "01", &uri);
+
+    conn = virConnectOpenReadOnly(ruby_libvirt_get_cstring_or_null(uri));
+
+    ruby_libvirt_raise_error_if(conn == NULL, e_ConnectionError,
+                                "virConnectOpenReadOnly", NULL);
+
+    return ruby_libvirt_connect_new(conn);
 }
 
 #if HAVE_VIRCONNECTOPENAUTH
 static int libvirt_auth_callback_wrapper(virConnectCredentialPtr cred,
-                                         unsigned int ncred, void *cbdata) {
-    VALUE userdata;
-    VALUE newcred;
-    int i;
-    VALUE result;
+                                         unsigned int ncred, void *cbdata)
+{
+    VALUE userdata, newcred, result;
+    unsigned int i;
 
     userdata = (VALUE)cbdata;
 
-    if (!rb_block_given_p())
+    if (!rb_block_given_p()) {
         rb_raise(rb_eRuntimeError, "No block given, this should never happen!\n");
+    }
 
     for (i = 0; i < ncred; i++) {
         newcred = rb_hash_new();
@@ -145,16 +149,20 @@ static int libvirt_auth_callback_wrapper(virConnectCredentialPtr cred,
         rb_hash_aset(newcred, rb_str_new2("type"), INT2NUM(cred[i].type));
         rb_hash_aset(newcred, rb_str_new2("prompt"),
                      rb_str_new2(cred[i].prompt));
-        if (cred[i].challenge)
+        if (cred[i].challenge) {
             rb_hash_aset(newcred, rb_str_new2("challenge"),
                          rb_str_new2(cred[i].challenge));
-        else
+        }
+        else {
             rb_hash_aset(newcred, rb_str_new2("challenge"), Qnil);
-        if (cred[i].defresult)
+        }
+        if (cred[i].defresult) {
             rb_hash_aset(newcred, rb_str_new2("defresult"),
                          rb_str_new2(cred[i].defresult));
-        else
+        }
+        else {
             rb_hash_aset(newcred, rb_str_new2("defresult"), Qnil);
+        }
         rb_hash_aset(newcred, rb_str_new2("result"), Qnil);
         rb_hash_aset(newcred, rb_str_new2("userdata"), userdata);
 
@@ -172,29 +180,11 @@ static int libvirt_auth_callback_wrapper(virConnectCredentialPtr cred,
     return 0;
 }
 
-
-struct wrap_callout {
-    char *uri;
-    virConnectAuthPtr auth;
-    unsigned int flags;
-};
-
-static VALUE rb_open_auth_wrap(VALUE arg) {
-    struct wrap_callout *e = (struct wrap_callout *)arg;
-
-    return (VALUE)virConnectOpenAuth(e->uri, e->auth, e->flags);
-}
-
-static VALUE rb_num2int_wrap(VALUE arg) {
-    return NUM2INT(arg);
-}
-
 /*
  * call-seq:
  *   Libvirt::open_auth(uri=nil, credlist=nil, userdata=nil, flags=0) {|...| authentication block} -> Libvirt::Connect
  *
- * Call
- * +virConnectOpenAuth+[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectOpenAuth]
+ * Call virConnectOpenAuth[http://www.libvirt.org/html/libvirt-libvirt.html#virConnectOpenAuth]
  * to open a connection to a libvirt URI, with a possible authentication block.
  * If an authentication block is desired, then credlist should be an array that
  * specifies which credentials the authentication block is willing to support;
@@ -224,66 +214,36 @@ static VALUE rb_num2int_wrap(VALUE arg) {
  * The authentication block should return the result of collecting the
  * information; these results will then be sent to libvirt for authentication.
  */
-static VALUE libvirt_open_auth(int argc, VALUE *argv, VALUE m) {
+static VALUE libvirt_open_auth(int argc, VALUE *argv,
+                               VALUE RUBY_LIBVIRT_UNUSED(m))
+{
     virConnectAuthPtr auth;
-    VALUE uri;
-    VALUE credlist;
-    VALUE userdata;
-    VALUE flags_val;
-    char *uri_c;
-    virConnectPtr conn = NULL;
-    unsigned int flags;
-    int auth_alloc;
-    int i;
-    VALUE tmp;
-    int exception = 0;
-    struct rb_ary_entry_arg args;
-    struct wrap_callout callargs;
+    VALUE uri, credlist, userdata, flags, tmp;
+    virConnectPtr conn;
+    unsigned int i;
 
-    rb_scan_args(argc, argv, "04", &uri, &credlist, &userdata, &flags_val);
-
-    /* handle the optional URI */
-    uri_c = get_string_or_nil(uri);
-
-    /* handle the optional flags */
-    if (NIL_P(flags_val))
-        flags = 0;
-    else
-        flags = NUM2UINT(flags_val);
+    rb_scan_args(argc, argv, "04", &uri, &credlist, &userdata, &flags);
 
     if (rb_block_given_p()) {
-        auth = ALLOC(virConnectAuth);
-        auth_alloc = 1;
+        auth = alloca(sizeof(virConnectAuth));
 
-        if (TYPE(credlist) == T_NIL)
+        if (TYPE(credlist) == T_NIL) {
             auth->ncredtype = 0;
-        else if (TYPE(credlist) == T_ARRAY)
+        }
+        else if (TYPE(credlist) == T_ARRAY) {
             auth->ncredtype = RARRAY_LEN(credlist);
-        else
-            rb_raise(rb_eTypeError, "wrong argument type (expected Array or nil)");
+        }
+        else {
+            rb_raise(rb_eTypeError,
+                     "wrong argument type (expected Array or nil)");
+        }
         auth->credtype = NULL;
         if (auth->ncredtype > 0) {
-            /* we don't use ALLOC_N here because that can throw an exception,
-             * and leak the auth pointer.  Instead we use normal malloc
-             * (which has a slightly higher chance of returning NULL), and
-             * then properly cleanup if it fails
-             */
-            auth->credtype = malloc(sizeof(int) * auth->ncredtype);
-            if (auth->credtype == NULL) {
-                xfree(auth);
-                rb_memerror();
-            }
-            for (i = 0; i < auth->ncredtype; i++) {
-                args.arr = credlist;
-                args.elem = i;
-                tmp = rb_protect(rb_ary_entry_wrap, (VALUE)&args, &exception);
-                if (exception)
-                    goto do_cleanup;
+            auth->credtype = alloca(sizeof(int) * auth->ncredtype);
 
-                auth->credtype[i] = rb_protect(rb_num2int_wrap, tmp,
-                                               &exception);
-                if (exception)
-                    goto do_cleanup;
+            for (i = 0; i < auth->ncredtype; i++) {
+                tmp = rb_ary_entry(credlist, i);
+                auth->credtype[i] = NUM2INT(tmp);
             }
         }
 
@@ -292,29 +252,15 @@ static VALUE libvirt_open_auth(int argc, VALUE *argv, VALUE m) {
     }
     else {
         auth = virConnectAuthPtrDefault;
-        auth_alloc = 0;
     }
 
-    callargs.uri = uri_c;
-    callargs.auth = auth;
-    callargs.flags = flags;
+    conn = virConnectOpenAuth(ruby_libvirt_get_cstring_or_null(uri), auth,
+                              ruby_libvirt_value_to_uint(flags));
 
-    conn = (virConnectPtr)rb_protect(rb_open_auth_wrap, (VALUE)&callargs,
-                                     &exception);
+    ruby_libvirt_raise_error_if(conn == NULL, e_ConnectionError,
+                                "virConnectOpenAuth", NULL);
 
-do_cleanup:
-    if (auth_alloc) {
-        free(auth->credtype);
-        xfree(auth);
-    }
-
-    if (exception)
-        rb_jump_tag(exception);
-
-    _E(conn == NULL, create_error(e_ConnectionError, "virConnectOpenAuth",
-                                  NULL));
-
-    return connect_new(conn);
+    return ruby_libvirt_connect_new(conn);
 }
 #endif
 
@@ -337,36 +283,23 @@ static VALUE add_timeout, update_timeout, remove_timeout;
  *
  * Libvirt::event_invoke_handle_callback takes 4 arguments:
  *
- * handle
- *          an application specific handle ID.  This can be any integer, but
- *          must be unique from all other libvirt handles in the application.
- * fd
- *          the file descriptor of interest.  This was given to the application
- *          as a callback to add_handle of Libvirt::event_register_impl
- * events
- *          the events that have occured on the fd.  Note that the events are
- *          libvirt specific, and are some combination of
- *          Libvirt::EVENT_HANDLE_READABLE, Libvirt::EVENT_HANDLE_WRITABLE,
- *          Libvirt::EVENT_HANDLE_ERROR, Libvirt::EVENT_HANDLE_HANGUP.  To
- *          notify libvirt of more than one event at a time, these values should
- *          be logically OR'ed together.
- * opaque
- *          the opaque data passed from libvirt during the
- *          Libvirt::event_register_impl add_handle callback.  To ensure proper
- *          operation this data must be passed through to
- *          event_invoke_handle_callback without modification.
+ * handle - an application specific handle ID.  This can be any integer, but must be unique from all other libvirt handles in the application.
+ *
+ * fd - the file descriptor of interest.  This was given to the application as a callback to add_handle of Libvirt::event_register_impl
+ *
+ * events - the events that have occured on the fd.  Note that the events are libvirt specific, and are some combination of Libvirt::EVENT_HANDLE_READABLE, Libvirt::EVENT_HANDLE_WRITABLE, Libvirt::EVENT_HANDLE_ERROR, Libvirt::EVENT_HANDLE_HANGUP.  To notify libvirt of more than one event at a time, these values should be logically OR'ed together.
+ *
+ * opaque - the opaque data passed from libvirt during the Libvirt::event_register_impl add_handle callback.  To ensure proper operation this data must be passed through to event_invoke_handle_callback without modification.
  */
-static VALUE libvirt_event_invoke_handle_callback(VALUE m, VALUE handle,
-                                                  VALUE fd, VALUE events,
-                                                  VALUE opaque) {
+static VALUE libvirt_event_invoke_handle_callback(VALUE RUBY_LIBVIRT_UNUSED(m),
+                                                  VALUE handle, VALUE fd,
+                                                  VALUE events, VALUE opaque)
+{
     virEventHandleCallback cb;
     void *op;
-    VALUE libvirt_cb;
-    VALUE libvirt_opaque;
+    VALUE libvirt_cb, libvirt_opaque;
 
-    if (TYPE(opaque) != T_HASH)
-        rb_raise(rb_eTypeError,
-                 "wrong event callback argument type (expected Hash)");
+    Check_Type(opaque, T_HASH);
 
     libvirt_cb = rb_hash_aref(opaque, rb_str_new2("libvirt_cb"));
 
@@ -399,25 +332,18 @@ static VALUE libvirt_event_invoke_handle_callback(VALUE m, VALUE handle,
  *
  * Libvirt::event_invoke_timeout_callback takes 2 arguments:
  *
- * handle
- *          an application specific timer ID.  This can be any integer, but
- *          must be unique from all other libvirt timers in the application.
- * opaque
- *          the opaque data passed from libvirt during the
- *          Libvirt::event_register_impl add_handle callback.  To ensure proper
- *          operation this data must be passed through to
- *          event_invoke_handle_callback without modification.
+ * handle - an application specific timer ID.  This can be any integer, but must be unique from all other libvirt timers in the application.
+ *
+ * opaque - the opaque data passed from libvirt during the Libvirt::event_register_impl add_handle callback.  To ensure proper operation this data must be passed through to event_invoke_handle_callback without modification.
  */
-static VALUE libvirt_event_invoke_timeout_callback(VALUE m, VALUE timer,
-                                                   VALUE opaque) {
+static VALUE libvirt_event_invoke_timeout_callback(VALUE RUBY_LIBVIRT_UNUSED(m),
+                                                   VALUE timer, VALUE opaque)
+{
     virEventTimeoutCallback cb;
     void *op;
-    VALUE libvirt_cb;
-    VALUE libvirt_opaque;
+    VALUE libvirt_cb, libvirt_opaque;
 
-    if (TYPE(opaque) != T_HASH)
-        rb_raise(rb_eTypeError,
-                 "wrong event callback argument type (expected Hash)");
+    Check_Type(opaque, T_HASH);
 
     libvirt_cb = rb_hash_aref(opaque, rb_str_new2("libvirt_cb"));
 
@@ -438,9 +364,9 @@ static VALUE libvirt_event_invoke_timeout_callback(VALUE m, VALUE timer,
 
 static int internal_add_handle_func(int fd, int events,
                                     virEventHandleCallback cb, void *opaque,
-                                    virFreeCallback ff) {
-    VALUE rubyargs;
-    VALUE res;
+                                    virFreeCallback ff)
+{
+    VALUE rubyargs, res;
 
     rubyargs = rb_hash_new();
     rb_hash_aset(rubyargs, rb_str_new2("libvirt_cb"),
@@ -451,56 +377,67 @@ static int internal_add_handle_func(int fd, int events,
                  Data_Wrap_Struct(rb_class_of(add_handle), NULL, NULL, ff));
 
     /* call out to the ruby object */
-    if (strcmp(rb_obj_classname(add_handle), "Symbol") == 0)
+    if (strcmp(rb_obj_classname(add_handle), "Symbol") == 0) {
         res = rb_funcall(rb_class_of(add_handle), rb_to_id(add_handle), 3,
                          INT2NUM(fd), INT2NUM(events), rubyargs);
-    else if (strcmp(rb_obj_classname(add_handle), "Proc") == 0)
+    }
+    else if (strcmp(rb_obj_classname(add_handle), "Proc") == 0) {
         res = rb_funcall(add_handle, rb_intern("call"), 3, INT2NUM(fd),
                          INT2NUM(events), rubyargs);
-    else
+    }
+    else {
         rb_raise(rb_eTypeError,
                  "wrong add handle callback argument type (expected Symbol or Proc)");
+    }
 
-    if (TYPE(res) != T_FIXNUM)
+    if (TYPE(res) != T_FIXNUM) {
         rb_raise(rb_eTypeError,
                  "expected integer return from add_handle callback");
+    }
 
     return NUM2INT(res);
 }
 
-static void internal_update_handle_func(int watch, int event) {
+static void internal_update_handle_func(int watch, int event)
+{
     /* call out to the ruby object */
-    if (strcmp(rb_obj_classname(update_handle), "Symbol") == 0)
+    if (strcmp(rb_obj_classname(update_handle), "Symbol") == 0) {
         rb_funcall(rb_class_of(update_handle), rb_to_id(update_handle), 2,
                    INT2NUM(watch), INT2NUM(event));
-    else if (strcmp(rb_obj_classname(update_handle), "Proc") == 0)
+    }
+    else if (strcmp(rb_obj_classname(update_handle), "Proc") == 0) {
         rb_funcall(update_handle, rb_intern("call"), 2, INT2NUM(watch),
                    INT2NUM(event));
-    else
+    }
+    else {
         rb_raise(rb_eTypeError,
                  "wrong update handle callback argument type (expected Symbol or Proc)");
+    }
 }
 
-static int internal_remove_handle_func(int watch) {
-    VALUE res;
+static int internal_remove_handle_func(int watch)
+{
+    VALUE res, libvirt_opaque, ff;
     virFreeCallback ff_cb;
     void *op;
-    VALUE libvirt_opaque;
-    VALUE ff;
 
     /* call out to the ruby object */
-    if (strcmp(rb_obj_classname(remove_handle), "Symbol") == 0)
+    if (strcmp(rb_obj_classname(remove_handle), "Symbol") == 0) {
         res = rb_funcall(rb_class_of(remove_handle), rb_to_id(remove_handle),
                          1, INT2NUM(watch));
-    else if (strcmp(rb_obj_classname(remove_handle), "Proc") == 0)
+    }
+    else if (strcmp(rb_obj_classname(remove_handle), "Proc") == 0) {
         res = rb_funcall(remove_handle, rb_intern("call"), 1, INT2NUM(watch));
-    else
+    }
+    else {
         rb_raise(rb_eTypeError,
                  "wrong remove handle callback argument type (expected Symbol or Proc)");
+    }
 
-    if (TYPE(res) != T_HASH)
+    if (TYPE(res) != T_HASH) {
         rb_raise(rb_eTypeError,
                  "expected opaque hash returned from remove_handle callback");
+    }
 
     ff = rb_hash_aref(res, rb_str_new2("free_func"));
     if (!NIL_P(ff)) {
@@ -521,9 +458,9 @@ static int internal_remove_handle_func(int watch) {
 }
 
 static int internal_add_timeout_func(int interval, virEventTimeoutCallback cb,
-                                     void *opaque, virFreeCallback ff) {
-    VALUE rubyargs;
-    VALUE res;
+                                     void *opaque, virFreeCallback ff)
+{
+    VALUE rubyargs, res;
 
     rubyargs = rb_hash_new();
 
@@ -536,56 +473,67 @@ static int internal_add_timeout_func(int interval, virEventTimeoutCallback cb,
                  Data_Wrap_Struct(rb_class_of(add_timeout), NULL, NULL, ff));
 
     /* call out to the ruby object */
-    if (strcmp(rb_obj_classname(add_timeout), "Symbol") == 0)
+    if (strcmp(rb_obj_classname(add_timeout), "Symbol") == 0) {
         res = rb_funcall(rb_class_of(add_timeout), rb_to_id(add_timeout), 2,
                          INT2NUM(interval), rubyargs);
-    else if (strcmp(rb_obj_classname(add_timeout), "Proc") == 0)
+    }
+    else if (strcmp(rb_obj_classname(add_timeout), "Proc") == 0) {
         res = rb_funcall(add_timeout, rb_intern("call"), 2, INT2NUM(interval),
                          rubyargs);
-    else
+    }
+    else {
         rb_raise(rb_eTypeError,
                  "wrong add timeout callback argument type (expected Symbol or Proc)");
+    }
 
-    if (TYPE(res) != T_FIXNUM)
+    if (TYPE(res) != T_FIXNUM) {
         rb_raise(rb_eTypeError,
                  "expected integer return from add_timeout callback");
+    }
 
     return NUM2INT(res);
 }
 
-static void internal_update_timeout_func(int timer, int timeout) {
+static void internal_update_timeout_func(int timer, int timeout)
+{
     /* call out to the ruby object */
-    if (strcmp(rb_obj_classname(update_timeout), "Symbol") == 0)
+    if (strcmp(rb_obj_classname(update_timeout), "Symbol") == 0) {
         rb_funcall(rb_class_of(update_timeout), rb_to_id(update_timeout), 2,
                    INT2NUM(timer), INT2NUM(timeout));
-    else if (strcmp(rb_obj_classname(update_timeout), "Proc") == 0)
+    }
+    else if (strcmp(rb_obj_classname(update_timeout), "Proc") == 0) {
         rb_funcall(update_timeout, rb_intern("call"), 2, INT2NUM(timer),
                    INT2NUM(timeout));
-    else
+    }
+    else {
         rb_raise(rb_eTypeError,
                  "wrong update timeout callback argument type (expected Symbol or Proc)");
+    }
 }
 
-static int internal_remove_timeout_func(int timer) {
-    VALUE res;
+static int internal_remove_timeout_func(int timer)
+{
+    VALUE res, libvirt_opaque, ff;
     virFreeCallback ff_cb;
     void *op;
-    VALUE libvirt_opaque;
-    VALUE ff;
 
     /* call out to the ruby object */
-    if (strcmp(rb_obj_classname(remove_timeout), "Symbol") == 0)
+    if (strcmp(rb_obj_classname(remove_timeout), "Symbol") == 0) {
         res = rb_funcall(rb_class_of(remove_timeout), rb_to_id(remove_timeout),
                          1, INT2NUM(timer));
-    else if (strcmp(rb_obj_classname(remove_timeout), "Proc") == 0)
+    }
+    else if (strcmp(rb_obj_classname(remove_timeout), "Proc") == 0) {
         res = rb_funcall(remove_timeout, rb_intern("call"), 1, INT2NUM(timer));
-    else
+    }
+    else {
         rb_raise(rb_eTypeError,
                  "wrong remove timeout callback argument type (expected Symbol or Proc)");
+    }
 
-    if (TYPE(res) != T_HASH)
+    if (TYPE(res) != T_HASH) {
         rb_raise(rb_eTypeError,
                  "expected opaque hash returned from remove_timeout callback");
+    }
 
     ff = rb_hash_aref(res, rb_str_new2("free_func"));
     if (!NIL_P(ff)) {
@@ -607,24 +555,27 @@ static int internal_remove_timeout_func(int timer) {
 
 #define set_event_func_or_null(type)                \
     do {                                            \
-        if (NIL_P(type))                            \
+        if (NIL_P(type)) {                          \
             type##_temp = NULL;                     \
-        else                                        \
+        }                                           \
+        else {                                      \
             type##_temp = internal_##type##_func;   \
+        }                                           \
     } while(0)
 
-static int is_symbol_proc_or_nil(VALUE handle) {
-    if (NIL_P(handle))
+static int is_symbol_proc_or_nil(VALUE handle)
+{
+    if (NIL_P(handle)) {
         return 1;
-    return is_symbol_or_proc(handle);
+    }
+    return ruby_libvirt_is_symbol_or_proc(handle);
 }
 
 /*
  * call-seq:
  *   Libvirt::event_register_impl(add_handle=nil, update_handle=nil, remove_handle=nil, add_timeout=nil, update_timeout=nil, remove_timeout=nil) -> Qnil
  *
- * Call
- * +virEventRegisterImpl+[http://www.libvirt.org/html/libvirt-libvirt.html#virEventRegisterImpl]
+ * Call virEventRegisterImpl[http://www.libvirt.org/html/libvirt-libvirt.html#virEventRegisterImpl]
  * to register callback handlers for handles and timeouts.  These handles and
  * timeouts are used as part of the libvirt infrastructure for generating
  * domain events.  Each callback must be a Symbol (that is the name of a
@@ -652,7 +603,9 @@ static int is_symbol_proc_or_nil(VALUE handle) {
  * passed to the event_invoke_handle_callback and event_invoke_timeout_callback
  * module methods; see the documentation for those methods for more details.
  */
-static VALUE libvirt_conn_event_register_impl(int argc, VALUE *argv, VALUE c) {
+static VALUE libvirt_conn_event_register_impl(int argc, VALUE *argv,
+                                              VALUE RUBY_LIBVIRT_UNUSED(c))
+{
     virEventAddHandleFunc add_handle_temp;
     virEventUpdateHandleFunc update_handle_temp;
     virEventRemoveHandleFunc remove_handle_temp;
@@ -673,9 +626,10 @@ static VALUE libvirt_conn_event_register_impl(int argc, VALUE *argv, VALUE c) {
         !is_symbol_proc_or_nil(remove_handle) ||
         !is_symbol_proc_or_nil(add_timeout) ||
         !is_symbol_proc_or_nil(update_timeout) ||
-        !is_symbol_proc_or_nil(remove_timeout))
+        !is_symbol_proc_or_nil(remove_timeout)) {
         rb_raise(rb_eTypeError,
                  "wrong argument type (expected Symbol, Proc, or nil)");
+    }
 
     set_event_func_or_null(add_handle);
     set_event_func_or_null(update_handle);
@@ -693,10 +647,67 @@ static VALUE libvirt_conn_event_register_impl(int argc, VALUE *argv, VALUE c) {
 }
 #endif
 
+#if HAVE_VIRDOMAINLXCENTERSECURITYLABEL
+/*
+ * call-seq:
+ *   Libvirt::lxc_enter_security_label(model, label, flags=0) -> Libvirt::Domain::SecurityLabel
+ *
+ * Call virDomainLxcEnterSecurityLabel[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainLxcEnterSecurityLabel]
+ * to attach to the security label specified by label in the security model
+ * specified by model.  The return object is a Libvirt::Domain::SecurityLabel
+ * which may be able to be used to move back to the previous label.
+ */
+static VALUE libvirt_domain_lxc_enter_security_label(int argc, VALUE *argv,
+                                                     VALUE RUBY_LIBVIRT_UNUSED(c))
+{
+    VALUE model, label, flags, result, modiv, doiiv, labiv;
+    virSecurityModel mod;
+    char *modstr, *doistr, *labstr;
+    virSecurityLabel lab, oldlab;
+    int ret;
+
+    rb_scan_args(argc, argv, "21", &model, &label, &flags);
+
+    if (rb_class_of(model) != c_node_security_model) {
+        rb_raise(rb_eTypeError,
+                 "wrong argument type (expected Libvirt::Connect::NodeSecurityModel)");
+    }
+
+    if (rb_class_of(label) != c_domain_security_label) {
+        rb_raise(rb_eTypeError,
+                 "wrong argument type (expected Libvirt::Domain::SecurityLabel)");
+    }
+
+    modiv = rb_iv_get(model, "@model");
+    modstr = StringValueCStr(modiv);
+    memcpy(mod.model, modstr, strlen(modstr));
+    doiiv = rb_iv_get(model, "@doi");
+    doistr = StringValueCStr(doiiv);
+    memcpy(mod.doi, doistr, strlen(doistr));
+
+    labiv = rb_iv_get(label, "@label");
+    labstr = StringValueCStr(labiv);
+    memcpy(lab.label, labstr, strlen(labstr));
+    lab.enforcing = NUM2INT(rb_iv_get(label, "@enforcing"));
+
+    ret = virDomainLxcEnterSecurityLabel(&mod, &lab, &oldlab,
+                                         ruby_libvirt_value_to_uint(flags));
+    ruby_libvirt_raise_error_if(ret < 0, e_RetrieveError,
+                                "virDomainLxcEnterSecurityLabel", NULL);
+
+    result = rb_class_new_instance(0, NULL, c_domain_security_label);
+    rb_iv_set(result, "@label", rb_str_new2(oldlab.label));
+    rb_iv_set(result, "@enforcing", INT2NUM(oldlab.enforcing));
+
+    return result;
+}
+#endif
+
 /*
  * Module Libvirt
  */
-void Init__libvirt() {
+void Init__libvirt(void)
+{
     m_libvirt = rb_define_module("Libvirt");
     c_libvirt_version = rb_define_class_under(m_libvirt, "Version",
                                               rb_cObject);
@@ -710,9 +721,15 @@ void Init__libvirt() {
     rb_define_const(m_libvirt, "CRED_CNONCE", INT2NUM(VIR_CRED_CNONCE));
     rb_define_const(m_libvirt, "CRED_PASSPHRASE", INT2NUM(VIR_CRED_PASSPHRASE));
     rb_define_const(m_libvirt, "CRED_ECHOPROMPT", INT2NUM(VIR_CRED_ECHOPROMPT));
-    rb_define_const(m_libvirt, "CRED_NOECHOPROMPT", INT2NUM(VIR_CRED_NOECHOPROMPT));
+    rb_define_const(m_libvirt, "CRED_NOECHOPROMPT",
+                    INT2NUM(VIR_CRED_NOECHOPROMPT));
     rb_define_const(m_libvirt, "CRED_REALM", INT2NUM(VIR_CRED_REALM));
     rb_define_const(m_libvirt, "CRED_EXTERNAL", INT2NUM(VIR_CRED_EXTERNAL));
+#endif
+
+#if HAVE_CONST_VIR_CONNECT_NO_ALIASES
+    rb_define_const(m_libvirt, "CONNECT_NO_ALIASES",
+                    INT2NUM(VIR_CONNECT_NO_ALIASES));
 #endif
 
     /*
@@ -993,18 +1010,24 @@ void Init__libvirt() {
                               libvirt_event_invoke_timeout_callback, 2);
 #endif
 
-    init_connect();
-    init_storage();
-    init_network();
-    init_nodedevice();
-    init_secret();
-    init_nwfilter();
-    init_interface();
-    init_domain();
-    init_stream();
+#if HAVE_VIRDOMAINLXCENTERSECURITYLABEL
+    rb_define_method(m_libvirt, "lxc_enter_security_label",
+                     libvirt_domain_lxc_enter_security_label, -1);
+#endif
+
+    ruby_libvirt_connect_init();
+    ruby_libvirt_storage_init();
+    ruby_libvirt_network_init();
+    ruby_libvirt_nodedevice_init();
+    ruby_libvirt_secret_init();
+    ruby_libvirt_nwfilter_init();
+    ruby_libvirt_interface_init();
+    ruby_libvirt_domain_init();
+    ruby_libvirt_stream_init();
 
     virSetErrorFunc(NULL, rubyLibvirtErrorFunc);
 
-    if (virInitialize() < 0)
+    if (virInitialize() < 0) {
         rb_raise(rb_eSystemCallError, "virInitialize failed");
+    }
 }
