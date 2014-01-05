@@ -7,6 +7,8 @@ $: << File.dirname(__FILE__)
 require 'libvirt'
 require 'test_utils.rb'
 
+set_test_object("Libvirt")
+
 def expect_connect_error(func, args)
   expect_fail(Libvirt, Libvirt::ConnectionError, "invalid driver", func, *args)
 end
@@ -59,6 +61,36 @@ conn.close
 conn = expect_success(Libvirt, "uri, full cred, and user args", "open_auth", "qemu:///system", [Libvirt::CRED_AUTHNAME, Libvirt::CRED_PASSPHRASE], "hello") {|x| x.class == Libvirt::Connect }
 conn.close
 
+# equivalent to expect_invalid_arg_type
+begin
+  conn = Libvirt::open_auth("qemu:///system", {}) do |cred|
+  end
+rescue TypeError => e
+  puts_ok "#{$test_object}.open_auth invalid arg type threw #{TypeError.to_s}"
+else
+  puts_fail "#{$test_object}.open_auth invalid arg type expected to throw #{TypeError.to_s}, but threw nothing"
+end
+
+# equivalent to expect_invalid_arg_type
+begin
+  conn = Libvirt::open_auth("qemu:///system", 1) do |cred|
+  end
+rescue TypeError => e
+  puts_ok "#{$test_object}.open_auth invalid arg type threw #{TypeError.to_s}"
+else
+  puts_fail "#{$test_object}.open_auth invalid arg type expected to throw #{TypeError.to_s}, but threw nothing"
+end
+
+# equivalent to expect_invalid_arg_type
+begin
+  conn = Libvirt::open_auth("qemu:///system", 'foo') do |cred|
+  end
+rescue TypeError => e
+  puts_ok "#{$test_object}.open_auth invalid arg type threw #{TypeError.to_s}"
+else
+  puts_fail "#{$test_object}.open_auth invalid arg type expected to throw #{TypeError.to_s}, but threw nothing"
+end
+
 # equivalent to "expect_success"
 begin
   conn = Libvirt::open_auth("qemu:///system", [Libvirt::CRED_AUTHNAME, Libvirt::CRED_PASSPHRASE], "hello") do |cred|
@@ -80,12 +112,25 @@ begin
     res
   end
 
-  puts_ok "open_auth uri, creds, userdata, auth block succeeded"
+  puts_ok "Libvirt.open_auth uri, creds, userdata, auth block succeeded"
   conn.close
 rescue NoMethodError
-  puts_skipped "open_auth does not exist"
+  puts_skipped "Libvirt.open_auth does not exist"
 rescue => e
-  puts_fail "open_auth uri, creds, userdata, auth block expected to succeed, threw #{e.class.to_s}: #{e.to_s}"
+  puts_fail "Libvirt.open_auth uri, creds, userdata, auth block expected to succeed, threw #{e.class.to_s}: #{e.to_s}"
+end
+
+# equivalent to "expect_success"
+begin
+  conn = Libvirt::open_auth("qemu:///system") do |cred|
+  end
+
+  puts_ok "Libvirt.open_auth uri, succeeded"
+  conn.close
+rescue NoMethodError
+  puts_skipped "Libvirt.open_auth does not exist"
+rescue => e
+  puts_fail "Libvirt.open_auth uri expected to succeed, threw #{e.class.to_s}: #{e.to_s}"
 end
 
 # equivalent to "expect_success"
@@ -109,12 +154,12 @@ begin
     res
   end
 
-  puts_ok "open_auth uri, creds, userdata, R/O flag, auth block succeeded"
+  puts_ok "Libvirt.open_auth uri, creds, userdata, R/O flag, auth block succeeded"
   conn.close
 rescue NoMethodError
-  puts_skipped "open_auth does not exist"
+  puts_skipped "Libvirt.open_auth does not exist"
 rescue => e
-  puts_fail "open_auth uri, creds, userdata, R/O flag, auth block expected to succeed, threw #{e.class.to_s}: #{e.to_s}"
+  puts_fail "Libvirt.open_auth uri, creds, userdata, R/O flag, auth block expected to succeed, threw #{e.class.to_s}: #{e.to_s}"
 end
 
 # TESTGROUP: Libvirt::event_invoke_handle_callback
@@ -125,6 +170,9 @@ expect_too_few_args(Libvirt, "event_invoke_handle_callback")
 expect_too_few_args(Libvirt, "event_invoke_handle_callback", 1)
 expect_too_few_args(Libvirt, "event_invoke_handle_callback", 1, 2)
 expect_too_few_args(Libvirt, "event_invoke_handle_callback", 1, 2, 3)
+expect_invalid_arg_type(Libvirt, "event_invoke_handle_callback", "hello", 1, 1, 1)
+expect_invalid_arg_type(Libvirt, "event_invoke_handle_callback", "hello", 1, 1, [])
+expect_invalid_arg_type(Libvirt, "event_invoke_handle_callback", "hello", 1, 1, nil)
 # this is a bit bizarre; I am constructing a bogus hash to pass as the 4th
 # parameter to event_invoke_handle_callback.  In a real situation, I would
 # have been given this hash from libvirt earlier, and just pass it on.  I
@@ -145,6 +193,9 @@ conn = Libvirt::open("qemu:///system")
 expect_too_many_args(Libvirt, "event_invoke_timeout_callback", 1, 2, 3)
 expect_too_few_args(Libvirt, "event_invoke_timeout_callback")
 expect_too_few_args(Libvirt, "event_invoke_timeout_callback", 1)
+expect_invalid_arg_type(Libvirt, "event_invoke_timeout_callback", "hello", 1)
+expect_invalid_arg_type(Libvirt, "event_invoke_timeout_callback", "hello", [])
+expect_invalid_arg_type(Libvirt, "event_invoke_timeout_callback", "hello", nil)
 # this is a bit bizarre; I am constructing a bogus hash to pass as the 4th
 # parameter to event_invoke_handle_callback.  In a real situation, I would
 # have been given this hash from libvirt earlier, and just pass it on.  I
@@ -193,5 +244,7 @@ expect_success(Libvirt, "all Symbol callbacks", "event_register_impl", :virEvent
 expect_success(Libvirt, "unregister all callbacks", "event_register_impl", nil, nil, nil, nil, nil, nil)
 expect_success(Libvirt, "all Proc callbacks", "event_register_impl", virEventAddHandleProc, virEventUpdateHandleProc, virEventRemoveHandleProc, virEventAddTimerProc, virEventUpdateTimerProc, virEventRemoveTimerProc)
 expect_success(Libvirt, "unregister all callbacks", "event_register_impl")
+
+# END TESTS
 
 finish_tests

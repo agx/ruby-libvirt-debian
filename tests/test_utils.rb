@@ -2,12 +2,15 @@ $FAIL = 0
 $SUCCESS = 0
 $SKIPPED = 0
 
-$GUEST_DISK = '/var/lib/libvirt/images/ruby-libvirt-tester.qcow2'
+$GUEST_BASE = '/var/lib/libvirt/images/ruby-libvirt-tester'
+$GUEST_DISK = $GUEST_BASE + '.qcow2'
+$GUEST_SAVE = $GUEST_BASE + '.save'
 $GUEST_UUID = "93a5c045-6457-2c09-e56f-927cdf34e17a"
 
 # XML data for later tests
 $new_dom_xml = <<EOF
 <domain type='kvm'>
+  <description>Ruby Libvirt Tester</description>
   <name>ruby-libvirt-tester</name>
   <uuid>#{$GUEST_UUID}</uuid>
   <memory>1048576</memory>
@@ -56,11 +59,14 @@ EOF
 # qemu command-line that roughly corresponds to the above XML
 $qemu_cmd_line = "/usr/bin/qemu-kvm -S -M pc-0.13 -enable-kvm -m 1024 -smp 1,sockets=1,cores=1,threads=1 -name ruby-libvirt-tester -uuid #{$GUEST_UUID} -nodefconfig -nodefaults -chardev socket,id=monitor,path=/var/lib/libvirt/qemu/ruby-libvirt-tester.monitor,server,nowait -mon chardev=monitor,mode=readline -rtc base=utc -boot c -chardev pty,id=serial0 -device isa-serial,chardev=serial0 -usb -vnc 127.0.0.1:0 -k en-us -vga cirrus -device virtio-balloon-pci,id=balloon0,bus=pci.0,addr=0x5"
 
+$NEW_INTERFACE_MAC = 'aa:bb:cc:dd:ee:ff'
 $new_interface_xml = <<EOF
-<interface type="bridge" name="ruby-libvirt-tester">
+<interface type="ethernet" name="ruby-libvirt-tester">
   <start mode="onboot"/>
-  <bridge delay="0">
-  </bridge>
+  <mac address="#{$NEW_INTERFACE_MAC}"/>
+  <protocol family='ipv4'>
+    <dhcp peerdns='yes'/>
+  </protocol>
 </interface>
 EOF
 
@@ -77,6 +83,10 @@ $new_net_xml = <<EOF
     </dhcp>
   </ip>
 </network>
+EOF
+
+$new_network_dhcp_ip = <<EOF
+<host mac='00:11:22:33:44:55' ip='192.168.134.5'/>
 EOF
 
 $NWFILTER_UUID = "bd339530-134c-6d07-441a-17fb90dad807"
@@ -115,36 +125,41 @@ $new_storage_pool_xml = <<EOF
 </pool>
 EOF
 
+$test_object = "unknown"
+
+def set_test_object(obj)
+  $test_object = obj
+end
+
 def expect_success(object, msg, func, *args)
   begin
-    x = object.send(func, *args)
+    x = object.__send__(func, *args)
     if block_given?
       res = yield x
       if not res
-        # FIXME: generate a proper error here
-        raise "Failed"
+        raise "block failed"
       end
     end
-    puts_ok "#{func} #{msg} succeeded"
+    puts_ok "#{$test_object}.#{func} #{msg} succeeded"
     x
   rescue NoMethodError
-    puts_skipped "#{func} does not exist"
+    puts_skipped "#{$test_object}.#{func} does not exist"
   rescue => e
-    puts_fail "#{func} #{msg} expected to succeed, threw #{e.class.to_s}: #{e.to_s}"
+    puts_fail "#{$test_object}.#{func} #{msg} expected to succeed, threw #{e.class.to_s}: #{e.to_s}"
   end
 end
 
 def expect_fail(object, errtype, errmsg, func, *args)
   begin
-    object.send(func, *args)
+    object.__send__(func, *args)
   rescue NoMethodError
-    puts_skipped "#{func} does not exist"
+    puts_skipped "#{$test_object}.#{func} does not exist"
   rescue errtype => e
-    puts_ok "#{func} #{errmsg} threw #{errtype.to_s}"
+    puts_ok "#{$test_object}.#{func} #{errmsg} threw #{errtype.to_s}"
   rescue => e
-    puts_fail "#{func} #{errmsg} expected to throw #{errtype.to_s}, but instead threw #{e.class.to_s}: #{e.to_s}"
+    puts_fail "#{$test_object}.#{func} #{errmsg} expected to throw #{errtype.to_s}, but instead threw #{e.class.to_s}: #{e.to_s}"
   else
-    puts_fail "#{func} #{errmsg} expected to throw #{errtype.to_s}, but threw nothing"
+    puts_fail "#{$test_object}.#{func} #{errmsg} expected to throw #{errtype.to_s}, but threw nothing"
   end
 end
 
@@ -177,4 +192,60 @@ end
 
 def finish_tests
   puts "Successfully finished #{$SUCCESS} tests, failed #{$FAIL} tests, skipped #{$SKIPPED} tests"
+end
+
+def find_valid_iface(conn)
+  conn.list_interfaces.each do |ifname|
+    iface = conn.lookup_interface_by_name(ifname)
+    if iface.mac == "00:00:00:00:00:00"
+      next
+    end
+    return iface
+  end
+  return nil
+end
+
+def cleanup_test_domain(conn)
+  # cleanup from previous runs
+  begin
+    olddom = conn.lookup_domain_by_name("ruby-libvirt-tester")
+  rescue
+    # in case we didn't find it, don't do anything
+  end
+
+  begin
+    olddom.destroy
+  rescue
+    # in case we didn't destroy it, don't do anything
+  end
+
+  begin
+    olddom.undefine(Libvirt::Domain::UNDEFINE_SNAPSHOTS_METADATA)
+  rescue
+    # in case we didn't undefine it, don't do anything
+  end
+
+  `rm -f #{$GUEST_DISK}`
+  `rm -f #{$GUEST_SAVE}`
+end
+
+def cleanup_test_network(conn)
+  # initial cleanup for previous run
+  begin
+    oldnet = conn.lookup_network_by_name("ruby-libvirt-tester")
+  rescue
+    # in case we didn't find it, don't do anything
+  end
+
+  begin
+    oldnet.destroy
+  rescue
+    # in case we didn't find it, don't do anything
+  end
+
+  begin
+    oldnet.undefine
+  rescue
+    # in case we didn't find it, don't do anything
+  end
 end

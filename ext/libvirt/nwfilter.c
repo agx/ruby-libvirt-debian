@@ -2,6 +2,7 @@
  * nwfilter.c: virNWFilter methods
  *
  * Copyright (C) 2010 Red Hat Inc.
+ * Copyright (C) 2013 Chris Lalancette <clalancette@gmail.com>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -28,88 +29,92 @@
 #if HAVE_TYPE_VIRNWFILTERPTR
 static VALUE c_nwfilter;
 
-static void nwfilter_free(void *nw) {
-    generic_free(NWFilter, nw);
+static void nwfilter_free(void *n)
+{
+    ruby_libvirt_free_struct(NWFilter, n);
 }
 
-static virNWFilterPtr nwfilter_get(VALUE nw) {
-    generic_get(NWFilter, nw);
+static virNWFilterPtr nwfilter_get(VALUE n)
+{
+    ruby_libvirt_get_struct(NWFilter, n);
 }
 
-VALUE nwfilter_new(virNWFilterPtr nw, VALUE conn) {
-    return generic_new(c_nwfilter, nw, conn, nwfilter_free);
+VALUE ruby_libvirt_nwfilter_new(virNWFilterPtr n, VALUE conn)
+{
+    return ruby_libvirt_new_class(c_nwfilter, n, conn, nwfilter_free);
 }
 
 /*
  * call-seq:
  *   nwfilter.undefine -> nil
  *
- * Call +virNWFilterUndefine+[http://www.libvirt.org/html/libvirt-libvirt.html#virNWFilterUndefine]
+ * Call virNWFilterUndefine[http://www.libvirt.org/html/libvirt-libvirt.html#virNWFilterUndefine]
  * to undefine the network filter.
  */
-static VALUE libvirt_nwfilter_undefine(VALUE s) {
-    gen_call_void(virNWFilterUndefine, conn(s), nwfilter_get(s));
+static VALUE libvirt_nwfilter_undefine(VALUE n)
+{
+    ruby_libvirt_generate_call_nil(virNWFilterUndefine,
+                                   ruby_libvirt_connect_get(n),
+                                   nwfilter_get(n));
 }
 
 /*
  * call-seq:
  *   nwfilter.name -> string
  *
- * Call +virNWFilterGetName+[http://www.libvirt.org/html/libvirt-libvirt.html#virNWFilterGetName]
+ * Call virNWFilterGetName[http://www.libvirt.org/html/libvirt-libvirt.html#virNWFilterGetName]
  * to retrieve the network filter name.
  */
-static VALUE libvirt_nwfilter_name(VALUE s) {
-    gen_call_string(virNWFilterGetName, conn(s), 0, nwfilter_get(s));
+static VALUE libvirt_nwfilter_name(VALUE n)
+{
+    ruby_libvirt_generate_call_string(virNWFilterGetName,
+                                      ruby_libvirt_connect_get(n), 0,
+                                      nwfilter_get(n));
 }
 
 /*
  * call-seq:
  *   nwfilter.uuid -> string
  *
- * Call +virNWFilterGetUUIDString+[http://www.libvirt.org/html/libvirt-libvirt.html#virNWFilterGetUUIDString]
+ * Call virNWFilterGetUUIDString[http://www.libvirt.org/html/libvirt-libvirt.html#virNWFilterGetUUIDString]
  * to retrieve the network filter UUID.
  */
-static VALUE libvirt_nwfilter_uuid(VALUE s) {
-    virNWFilterPtr nwfilter = nwfilter_get(s);
-    int r;
-    char uuid[VIR_UUID_STRING_BUFLEN];
-
-    r = virNWFilterGetUUIDString(nwfilter, uuid);
-    _E(r < 0, create_error(e_RetrieveError, "virNWFilterGetUUIDString",
-                           conn(s)));
-
-    return rb_str_new2((char *)uuid);
+static VALUE libvirt_nwfilter_uuid(VALUE n)
+{
+    ruby_libvirt_generate_uuid(virNWFilterGetUUIDString,
+                               ruby_libvirt_connect_get(n), nwfilter_get(n));
 }
 
 /*
  * call-seq:
  *   nwfilter.xml_desc(flags=0) -> string
  *
- * Call +virNWFilterGetXMLDesc+[http://www.libvirt.org/html/libvirt-libvirt.html#virNWFilterGetXMLDesc]
+ * Call virNWFilterGetXMLDesc[http://www.libvirt.org/html/libvirt-libvirt.html#virNWFilterGetXMLDesc]
  * to retrieve the XML for this network filter.
  */
-static VALUE libvirt_nwfilter_xml_desc(int argc, VALUE *argv, VALUE s) {
+static VALUE libvirt_nwfilter_xml_desc(int argc, VALUE *argv, VALUE n)
+{
     VALUE flags;
 
     rb_scan_args(argc, argv, "01", &flags);
 
-    if (NIL_P(flags))
-        flags = INT2NUM(0);
-
-    gen_call_string(virNWFilterGetXMLDesc, conn(s), 1, nwfilter_get(s),
-                    NUM2UINT(flags));
+    ruby_libvirt_generate_call_string(virNWFilterGetXMLDesc,
+                                      ruby_libvirt_connect_get(n), 1,
+                                      nwfilter_get(n),
+                                      ruby_libvirt_value_to_uint(flags));
 }
 
 /*
  * call-seq:
  *   nwfilter.free -> nil
  *
- * Call +virNWFilterFree+[http://www.libvirt.org/html/libvirt-libvirt.html#virNWFilterFree]
+ * Call virNWFilterFree[http://www.libvirt.org/html/libvirt-libvirt.html#virNWFilterFree]
  * to free this network filter.  After this call the network filter object is
  * no longer valid.
  */
-static VALUE libvirt_nwfilter_free(VALUE s) {
-    gen_call_free(NWFilter, s);
+static VALUE libvirt_nwfilter_free(VALUE n)
+{
+    ruby_libvirt_generate_call_free(NWFilter, n);
 }
 
 #endif
@@ -117,7 +122,7 @@ static VALUE libvirt_nwfilter_free(VALUE s) {
 /*
  * Class Libvirt::NWFilter
  */
-void init_nwfilter()
+void ruby_libvirt_nwfilter_init(void)
 {
 #if HAVE_TYPE_VIRNWFILTERPTR
     c_nwfilter = rb_define_class_under(m_libvirt, "NWFilter", rb_cObject);
