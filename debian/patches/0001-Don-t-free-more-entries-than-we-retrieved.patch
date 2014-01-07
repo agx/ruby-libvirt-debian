@@ -1,0 +1,86 @@
+From: =?utf-8?q?Guido_G=C3=BCnther?= <agx@sigxcpu.org>
+Date: Tue, 7 Jan 2014 20:06:26 +0100
+Subject: Don't free more entries than we retrieved
+
+The vir*List* functions return the number of fetched entries. We mustn't
+free more, otherwise we'll crash like
+
+ #0  0xb779d424 in __kernel_vsyscall ()
+ #1  0xb733981f in __GI_raise (sig=sig@entry=6) at ../nptl/sysdeps/unix/sysv/linux/raise.c:56
+ #2  0xb733ccd3 in __GI_abort () at abort.c:90
+ #3  0xb7376275 in __libc_message (do_abort=do_abort@entry=2, fmt=fmt@entry=0xb74767d0 "*** Error in `%s': %s: 0x%s ***\n") at ../sysdeps/unix/sysv/linux/libc_fatal.c:199
+ #4  0xb7380e52 in malloc_printerr (action=<optimized out>, str=<optimized out>, ptr=0xb7087000) at malloc.c:4923
+ #5  0xb7381b90 in _int_free (av=0xb74b7440 <main_arena>, p=0xb7086ff8, have_lock=0) at malloc.c:3779
+ #6  0xb75c059f in ruby_xfree () from /usr/lib/libruby-1.9.1.so.1.9
+ #7  0xb7076448 in ruby_libvirt_generate_list () from /usr/lib/ruby/vendor_ruby/1.9.1/i486-linux/_libvirt.so
+...
+
+since we're trying to free random addresses.
+---
+ ext/libvirt/connect.c    | 4 ++--
+ ext/libvirt/domain.c     | 2 +-
+ ext/libvirt/nodedevice.c | 2 +-
+ ext/libvirt/storage.c    | 2 +-
+ 4 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/ext/libvirt/connect.c b/ext/libvirt/connect.c
+index 36cac20..1af64a1 100644
+--- a/ext/libvirt/connect.c
++++ b/ext/libvirt/connect.c
+@@ -67,7 +67,7 @@
+         names = alloca(sizeof(char *) * num);                           \
+         r = virConnectList##objs(ruby_libvirt_connect_get(c), names, num); \
+         ruby_libvirt_raise_error_if(r < 0, e_RetrieveError, "virConnectList" # objs, ruby_libvirt_connect_get(c)); \
+-        return ruby_libvirt_generate_list(num, names);                  \
++        return ruby_libvirt_generate_list(r < 0 ? 0 : r, names);        \
+     } while(0)
+ 
+ static VALUE c_connect;
+@@ -1508,7 +1508,7 @@ static VALUE libvirt_connect_list_nodedevices(int argc, VALUE *argv, VALUE c)
+     ruby_libvirt_raise_error_if(r < 0, e_RetrieveError, "virNodeListDevices",
+                                 ruby_libvirt_connect_get(c));
+ 
+-    return ruby_libvirt_generate_list(num, names);
++    return ruby_libvirt_generate_list(r < 0 ? 0 : r, names);
+ }
+ 
+ /*
+diff --git a/ext/libvirt/domain.c b/ext/libvirt/domain.c
+index ddce2d8..bc46753 100644
+--- a/ext/libvirt/domain.c
++++ b/ext/libvirt/domain.c
+@@ -1532,7 +1532,7 @@ static VALUE libvirt_domain_list_snapshots(int argc, VALUE *argv, VALUE d)
+                                 "virDomainSnapshotListNames",
+                                 ruby_libvirt_connect_get(d));
+ 
+-    return ruby_libvirt_generate_list(num, names);
++    return ruby_libvirt_generate_list(r < 0 ? 0 : r, names);
+ }
+ 
+ /*
+diff --git a/ext/libvirt/nodedevice.c b/ext/libvirt/nodedevice.c
+index 98b3715..041cda2 100644
+--- a/ext/libvirt/nodedevice.c
++++ b/ext/libvirt/nodedevice.c
+@@ -124,7 +124,7 @@ static VALUE libvirt_nodedevice_list_caps(VALUE c)
+                                 "virNodeDeviceListCaps",
+                                 ruby_libvirt_connect_get(c));
+ 
+-    return ruby_libvirt_generate_list(num, names);
++    return ruby_libvirt_generate_list(r < 0 ? 0 : r, names);
+ }
+ 
+ /*
+diff --git a/ext/libvirt/storage.c b/ext/libvirt/storage.c
+index 4b96d2e..008410a 100644
+--- a/ext/libvirt/storage.c
++++ b/ext/libvirt/storage.c
+@@ -340,7 +340,7 @@ static VALUE libvirt_storage_pool_list_volumes(VALUE p)
+                                 "virStoragePoolListVolumes",
+                                 ruby_libvirt_connect_get(p));
+ 
+-    return ruby_libvirt_generate_list(num, names);
++    return ruby_libvirt_generate_list(r < 0 ? 0 : r, names);
+ }
+ 
+ /*
