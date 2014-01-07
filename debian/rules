@@ -3,3 +3,6 @@
 
 %:
 	dh $@ --buildsystem=ruby --with ruby
+
+override_dh_auto_test:
+	RUBY_LIBVIRT_TEST_URI=test:///default rake test
