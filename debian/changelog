@@ -1,3 +1,11 @@
+ruby-libvirt (0.5.1-2) unstable; urgency=medium
+
+  * [0852a9a] Fix a crash in vir*List* wrappers
+  * [e097992] Run some tests during build. Making all tests usable with the
+    testdriver will require some more work.
+
+ -- Guido Günther <agx@sigxcpu.org>  Tue, 07 Jan 2014 22:12:03 +0100
+
 ruby-libvirt (0.5.1-1) unstable; urgency=medium
 
   [ Christian Hofstaedtler ]
