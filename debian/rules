@@ -5,4 +5,7 @@
 	dh $@ --buildsystem=ruby --with ruby
 
 override_dh_auto_test:
+	XDG_RUNTIME_DIR=$(CURDIR) \
+	XDG_CONFIG_HOME=$(CURDIR) \
+	LIBVIRT_DEFAULT_URI=test:///default \
 	RUBY_LIBVIRT_TEST_URI=test:///default rake test
