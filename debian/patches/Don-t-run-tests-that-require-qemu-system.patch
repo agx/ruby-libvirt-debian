@@ -8,7 +8,7 @@ We only want to run tests for now that work with the testdriver
  1 file changed, 3 insertions(+), 5 deletions(-)
 
 diff --git a/Rakefile b/Rakefile
-index 753a096..3a2b99b 100644
+index 4155f0e..015308a 100644
 --- a/Rakefile
 +++ b/Rakefile
 @@ -75,11 +75,9 @@ task :build => LIBVIRT_MODULE

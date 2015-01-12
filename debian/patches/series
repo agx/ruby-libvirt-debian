@@ -1,3 +1,1 @@
-0001-Don-t-free-more-entries-than-we-retrieved.patch
-0002-Allow-to-set-URI-via-environment-variable.patch
-0003-Don-t-run-tests-that-require-qemu-system.patch
+Don-t-run-tests-that-require-qemu-system.patch
