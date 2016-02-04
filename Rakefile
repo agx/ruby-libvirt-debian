@@ -21,7 +21,7 @@ require 'rubygems/package_task'
 require 'rbconfig'
 
 PKG_NAME='ruby-libvirt'
-PKG_VERSION='0.5.2'
+PKG_VERSION='0.6.0'
 
 EXT_CONF='ext/libvirt/extconf.rb'
 MAKEFILE="ext/libvirt/Makefile"
@@ -37,8 +37,7 @@ LIBVIRT_SRC << MAKEFILE
 CLEAN.include [ "ext/**/*.o", LIBVIRT_MODULE, "ext/**/depend", "ext/**/*.gcda",
                 "ext/**/*.gcno", "ext/**/*.gcov" ]
 
-CLOBBER.include [ "config.save", "ext/**/mkmf.log", "ext/**/extconf.h",
-                  MAKEFILE ]
+CLOBBER.include [ "ext/**/mkmf.log", "ext/**/extconf.h", MAKEFILE ]
 
 task :default => :build
 

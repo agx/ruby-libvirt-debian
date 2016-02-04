@@ -2,7 +2,7 @@
  * storage.c: virStoragePool and virStorageVolume methods
  *
  * Copyright (C) 2007,2010 Red Hat Inc.
- * Copyright (C) 2013 Chris Lalancette <clalancette@gmail.com>
+ * Copyright (C) 2013,2014 Chris Lalancette <clalancette@gmail.com>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -186,7 +186,7 @@ static VALUE libvirt_storage_pool_refresh(int argc, VALUE *argv, VALUE p)
 
 /*
  * call-seq:
- *   pool.name -> string
+ *   pool.name -> String
  *
  * Call virStoragePoolGetName[http://www.libvirt.org/html/libvirt-libvirt.html#virStoragePoolGetName]
  * to retrieve the name of this storage pool.
@@ -200,7 +200,7 @@ static VALUE libvirt_storage_pool_name(VALUE p)
 
 /*
  * call-seq:
- *   pool.uuid -> string
+ *   pool.uuid -> String
  *
  * Call virStoragePoolGetUUIDString[http://www.libvirt.org/html/libvirt-libvirt.html#virStoragePoolGetUUIDString]
  * to retrieve the UUID of this storage pool.
@@ -240,7 +240,7 @@ static VALUE libvirt_storage_pool_info(VALUE p)
 
 /*
  * call-seq:
- *   pool.xml_desc(flags=0) -> string
+ *   pool.xml_desc(flags=0) -> String
  *
  * Call virStoragePoolGetXMLDesc[http://www.libvirt.org/html/libvirt-libvirt.html#virStoragePoolGetXMLDesc]
  * to retrieve the XML for this storage pool.
@@ -297,7 +297,7 @@ static VALUE libvirt_storage_pool_autostart_equal(VALUE p, VALUE autostart)
 
 /*
  * call-seq:
- *   pool.num_of_volumes -> fixnum
+ *   pool.num_of_volumes -> Fixnum
  *
  * Call virStoragePoolNumOfVolumes[http://www.libvirt.org/html/libvirt-libvirt.html#virStoragePoolNumOfVolumes]
  * to retrieve the number of volumes in this storage pool.
@@ -438,7 +438,7 @@ static VALUE libvirt_storage_pool_lookup_vol_by_path(VALUE p, VALUE path)
 #if HAVE_VIRSTORAGEPOOLLISTALLVOLUMES
 /*
  * call-seq:
- *   pool.list_all_volumes(flags=0) -> array
+ *   pool.list_all_volumes(flags=0) -> Array
  *
  * Call virStoragePoolListAllVolumes[http://www.libvirt.org/html/libvirt-libvirt.html#virStoragePoolListAllVolumes]
  * to get an array of volume objects for all volumes.
@@ -455,7 +455,7 @@ static VALUE libvirt_storage_pool_list_all_volumes(int argc, VALUE *argv,
 
 /*
  * call-seq:
- *   vol.name -> string
+ *   vol.name -> String
  *
  * Call virStorageVolGetName[http://www.libvirt.org/html/libvirt-libvirt.html#virStorageVolGetName]
  * to retrieve the name of this storage volume.
@@ -469,7 +469,7 @@ static VALUE libvirt_storage_vol_name(VALUE v)
 
 /*
  * call-seq:
- *   vol.key -> string
+ *   vol.key -> String
  *
  * Call virStorageVolGetKey[http://www.libvirt.org/html/libvirt-libvirt.html#virStorageVolGetKey]
  * to retrieve the key for this storage volume.
@@ -498,7 +498,7 @@ static VALUE libvirt_storage_pool_create_volume_xml(int argc, VALUE *argv,
 
     vol = virStorageVolCreateXML(pool_get(p), StringValueCStr(xml),
                                  ruby_libvirt_value_to_uint(flags));
-    ruby_libvirt_raise_error_if(vol == NULL, e_Error, "virNetworkCreateXML",
+    ruby_libvirt_raise_error_if(vol == NULL, e_Error, "virStorageVolCreateXML",
                                 ruby_libvirt_connect_get(p));
 
     return vol_new(vol, ruby_libvirt_conn_attr(p));
@@ -525,7 +525,7 @@ static VALUE libvirt_storage_pool_create_volume_xml_from(int argc, VALUE *argv,
                                      vol_get(cloneval),
                                      ruby_libvirt_value_to_uint(flags));
     ruby_libvirt_raise_error_if(vol == NULL, e_Error,
-                                "virNetworkCreateXMLFrom",
+                                "virStorageVolCreateXMLFrom",
                                 ruby_libvirt_connect_get(p));
 
     return vol_new(vol, ruby_libvirt_conn_attr(p));
@@ -631,7 +631,7 @@ static VALUE libvirt_storage_vol_info(VALUE v)
 
 /*
  * call-seq:
- *   vol.xml_desc(flags=0) -> string
+ *   vol.xml_desc(flags=0) -> String
  *
  * Call virStorageVolGetXMLDesc[http://www.libvirt.org/html/libvirt-libvirt.html#virStorageVolGetXMLDesc]
  * to retrieve the xml for this storage volume.
@@ -650,7 +650,7 @@ static VALUE libvirt_storage_vol_xml_desc(int argc, VALUE *argv, VALUE v)
 
 /*
  * call-seq:
- *   vol.path -> string
+ *   vol.path -> String
  *
  * Call virStorageVolGetPath[http://www.libvirt.org/html/libvirt-libvirt.html#virStorageVolGetPath]
  * to retrieve the path for this storage volume.
@@ -912,6 +912,9 @@ void ruby_libvirt_storage_init(void)
 #endif
 #if HAVE_CONST_VIR_STORAGE_VOL_NETWORK
     rb_define_const(c_storage_vol, "NETWORK", INT2NUM(VIR_STORAGE_VOL_NETWORK));
+#endif
+#if HAVE_CONST_VIR_STORAGE_VOL_NETDIR
+    rb_define_const(c_storage_vol, "NETDIR", INT2NUM(VIR_STORAGE_VOL_NETDIR));
 #endif
 
     /* virStorageVolDeleteFlags */

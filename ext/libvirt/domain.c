@@ -2,7 +2,7 @@
  * domain.c: virDomain methods
  *
  * Copyright (C) 2007,2010 Red Hat Inc.
- * Copyright (C) 2013 Chris Lalancette <clalancette@gmail.com>
+ * Copyright (C) 2013,2014 Chris Lalancette <clalancette@gmail.com>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -718,7 +718,7 @@ static VALUE libvirt_domain_block_info(int argc, VALUE *argv, VALUE d)
 #if HAVE_VIRDOMAINBLOCKPEEK
 /*
  * call-seq:
- *   dom.block_peek(path, offset, size, flags=0) -> string
+ *   dom.block_peek(path, offset, size, flags=0) -> String
  *
  * Call virDomainBlockPeek[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainBlockPeek]
  * to read size number of bytes, starting at offset offset from domain backing
@@ -748,7 +748,7 @@ static VALUE libvirt_domain_block_peek(int argc, VALUE *argv, VALUE d)
 #if HAVE_VIRDOMAINMEMORYPEEK
 /*
  * call-seq:
- *   dom.memory_peek(start, size, flags=Libvirt::Domain::MEMORY_VIRTUAL) -> string
+ *   dom.memory_peek(start, size, flags=Libvirt::Domain::MEMORY_VIRTUAL) -> String
  *
  * Call virDomainMemoryPeek[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainMemoryPeek]
  * to read size number of bytes from offset start from the domain memory.
@@ -803,7 +803,7 @@ static VALUE libvirt_domain_vcpus(VALUE d)
 
     cpumaplen = VIR_CPU_MAPLEN(maxcpus);
 
-    cpumap = alloca(cpumaplen);
+    cpumap = alloca(sizeof(unsigned char) * cpumaplen);
 
     r = virDomainGetVcpus(ruby_libvirt_domain_get(d), cpuinfo,
                           dominfo.nrVirtCpu, cpumap, cpumaplen);
@@ -928,7 +928,7 @@ static VALUE libvirt_domain_if_stats(VALUE d, VALUE sif)
 
 /*
  * call-seq:
- *   dom.name -> string
+ *   dom.name -> String
  *
  * Call virDomainGetName[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainGetName]
  * to retrieve the name of this domain.
@@ -942,7 +942,7 @@ static VALUE libvirt_domain_name(VALUE d)
 
 /*
  * call-seq:
- *   dom.id -> fixnum
+ *   dom.id -> Fixnum
  *
  * Call virDomainGetID[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainGetID]
  * to retrieve the ID of this domain.  If the domain isn't running, this will
@@ -967,7 +967,7 @@ static VALUE libvirt_domain_id(VALUE d)
 
 /*
  * call-seq:
- *   dom.uuid -> string
+ *   dom.uuid -> String
  *
  * Call virDomainGetUUIDString[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainGetUUIDString]
  * to retrieve the UUID of this domain.
@@ -981,7 +981,7 @@ static VALUE libvirt_domain_uuid(VALUE d)
 
 /*
  * call-seq:
- *   dom.os_type -> string
+ *   dom.os_type -> String
  *
  * Call virDomainGetOSType[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainGetOSType]
  * to retrieve the os_type of this domain.  In libvirt terms, os_type determines
@@ -996,7 +996,7 @@ static VALUE libvirt_domain_os_type(VALUE d)
 
 /*
  * call-seq:
- *   dom.max_memory -> fixnum
+ *   dom.max_memory -> Fixnum
  *
  * Call virDomainGetMaxMemory[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainGetMaxMemory]
  * to retrieve the maximum amount of memory this domain is allowed to access.
@@ -1070,7 +1070,7 @@ static VALUE libvirt_domain_memory_equal(VALUE d, VALUE in)
 
 /*
  * call-seq:
- *   dom.max_vcpus -> fixnum
+ *   dom.max_vcpus -> Fixnum
  *
  * Call virDomainGetMaxVcpus[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainGetMaxVcpus]
  * to retrieve the maximum number of virtual CPUs this domain can use.
@@ -1084,7 +1084,7 @@ static VALUE libvirt_domain_max_vcpus(VALUE d)
 
 #if HAVE_VIRDOMAINGETVCPUSFLAGS
 /* call-seq:
- *   dom.num_vcpus(flags) -> fixnum
+ *   dom.num_vcpus(flags) -> Fixnum
  *
  * Call virDomainGetVcpusFlags[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainGetVcpusFlags]
  * to retrieve the number of virtual CPUs assigned to this domain.
@@ -1194,7 +1194,7 @@ static VALUE libvirt_domain_pin_vcpu(int argc, VALUE *argv, VALUE d)
 
     cpumaplen = VIR_CPU_MAPLEN(maxcpus);
 
-    cpumap = alloca(cpumaplen);
+    cpumap = alloca(sizeof(unsigned char) * cpumaplen);
     MEMZERO(cpumap, unsigned char, cpumaplen);
 
     for (i = 0; i < RARRAY_LEN(cpulist); i++) {
@@ -1222,7 +1222,7 @@ static VALUE libvirt_domain_pin_vcpu(int argc, VALUE *argv, VALUE d)
 
 /*
  * call-seq:
- *   dom.xml_desc(flags=0) -> string
+ *   dom.xml_desc(flags=0) -> String
  *
  * Call virDomainGetXMLDesc[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainGetXMLDesc]
  * to retrieve the XML describing this domain.
@@ -1478,7 +1478,7 @@ static VALUE libvirt_domain_snapshot_create_xml(int argc, VALUE *argv, VALUE d)
 
 /*
  * call-seq:
- *   dom.num_of_snapshots(flags=0) -> fixnum
+ *   dom.num_of_snapshots(flags=0) -> Fixnum
  *
  * Call virDomainSnapshotNum[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainSnapshotNum]
  * to retrieve the number of available snapshots for this domain.
@@ -1624,7 +1624,7 @@ static VALUE libvirt_domain_current_snapshot(int argc, VALUE *argv, VALUE d)
 
 /*
  * call-seq:
- *   snapshot.xml_desc(flags=0) -> string
+ *   snapshot.xml_desc(flags=0) -> String
  *
  * Call virDomainSnapshotGetXMLDesc[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainSnapshotGetXMLDesc]
  * to retrieve the xml description for this snapshot.
@@ -1678,7 +1678,7 @@ static VALUE libvirt_domain_snapshot_free(VALUE s)
 #if HAVE_VIRDOMAINSNAPSHOTGETNAME
 /*
  * call-seq:
- *   snapshot.name -> string
+ *   snapshot.name -> String
  *
  * Call virDomainSnapshotGetName[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainSnapshotGetName]
  * to get the name associated with a snapshot.
@@ -1796,7 +1796,7 @@ static VALUE libvirt_domain_scheduler_type(VALUE d)
 #if HAVE_VIRDOMAINQEMUMONITORCOMMAND
 /*
  * call-seq:
- *   dom.qemu_monitor_command(cmd, flags=0) -> string
+ *   dom.qemu_monitor_command(cmd, flags=0) -> String
  *
  * Call virDomainQemuMonitorCommand
  * to send a qemu command directly to the monitor.  Note that this will only
@@ -2330,7 +2330,7 @@ VALUE libvirt_domain_send_key(VALUE d, VALUE codeset, VALUE holdtime,
 #if HAVE_VIRDOMAINMIGRATEGETMAXSPEED
 /*
  * call-seq:
- *   dom.migrate_max_speed(flags=0) -> fixnum
+ *   dom.migrate_max_speed(flags=0) -> Fixnum
  *
  * Call virDomainMigrateGetMaxSpeed[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainMigrateGetMaxSpeed]
  * to retrieve the maximum speed a migration can use.
@@ -2397,7 +2397,7 @@ static VALUE libvirt_domain_hostname(int argc, VALUE *argv, VALUE d)
 #if HAVE_VIRDOMAINGETMETADATA
 /*
  * call-seq:
- *   dom.metadata(type, uri=nil, flags=0) -> string
+ *   dom.metadata(type, uri=nil, flags=0) -> String
  *
  * Call virDomainGetMetadata[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainGetMetadata]
  * to get the metadata from a domain.
@@ -2487,7 +2487,7 @@ static VALUE libvirt_domain_send_process_signal(int argc, VALUE *argv, VALUE d)
 #if HAVE_VIRDOMAINLISTALLSNAPSHOTS
 /*
  * call-seq:
- *   dom.list_all_snapshots(flags=0) -> array
+ *   dom.list_all_snapshots(flags=0) -> Array
  *
  * Call virDomainListAllSnapshots[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainListAllSnapshots]
  * to get an array of snapshot objects for all snapshots.
@@ -2505,7 +2505,7 @@ static VALUE libvirt_domain_list_all_snapshots(int argc, VALUE *argv, VALUE d)
 #if HAVE_VIRDOMAINSNAPSHOTNUMCHILDREN
 /*
  * call-seq:
- *   snapshot.num_children(flags=0) -> fixnum
+ *   snapshot.num_children(flags=0) -> Fixnum
  *
  * Call virDomainSnapshotNumChildren[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainSnapshotNumChildren]
  * to get the number of children snapshots of this snapshot.
@@ -2527,7 +2527,7 @@ static VALUE libvirt_domain_snapshot_num_children(int argc, VALUE *argv,
 #if HAVE_VIRDOMAINSNAPSHOTLISTCHILDRENNAMES
 /*
  * call-seq:
- *   snapshot.list_children_names(flags=0) -> array
+ *   snapshot.list_children_names(flags=0) -> Array
  *
  * Call virDomainSnapshotListChildrenNames[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainSnapshotListChildrenNames]
  * to get an array of strings representing the children of this snapshot.
@@ -2535,10 +2535,10 @@ static VALUE libvirt_domain_snapshot_num_children(int argc, VALUE *argv,
 static VALUE libvirt_domain_snapshot_list_children_names(int argc, VALUE *argv,
                                                          VALUE s)
 {
-    VALUE flags, result, str;
+    VALUE flags, result;
     char **children;
     int num_children, ret, i, j, exception = 0;
-    struct ruby_libvirt_ary_store_arg arg;
+    struct ruby_libvirt_str_new2_and_ary_store_arg arg;
 
     rb_scan_args(argc, argv, "01", &flags);
 
@@ -2564,16 +2564,11 @@ static VALUE libvirt_domain_snapshot_list_children_names(int argc, VALUE *argv,
                                 ruby_libvirt_connect_get(s));
 
     for (i = 0; i < ret; i++) {
-        str = rb_protect(ruby_libvirt_str_new2_wrap, (VALUE)&(children[i]),
-                         &exception);
-        if (exception) {
-            goto error;
-        }
-
         arg.arr = result;
         arg.index = i;
-        arg.elem = str;
-        rb_protect(ruby_libvirt_ary_store_wrap, (VALUE)&arg, &exception);
+        arg.value = children[i];
+        rb_protect(ruby_libvirt_str_new2_and_ary_store_wrap, (VALUE)&arg,
+                   &exception);
         if (exception) {
             goto error;
         }
@@ -2596,7 +2591,7 @@ error:
 #if HAVE_VIRDOMAINSNAPSHOTLISTALLCHILDREN
 /*
  * call-seq:
- *   snapshot.list_all_children(flags=0) -> array
+ *   snapshot.list_all_children(flags=0) -> Array
  *
  * Call virDomainSnapshotListAllChildren[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainSnapshotListAllChildren]
  * to get an array of snapshot objects that are children of this snapshot.
@@ -3026,7 +3021,7 @@ static VALUE libvirt_domain_emulator_pin_info(int argc, VALUE *argv, VALUE d)
 
     cpumaplen = VIR_CPU_MAPLEN(maxcpus);
 
-    cpumap = alloca(cpumaplen);
+    cpumap = alloca(sizeof(unsigned char) * cpumaplen);
 
     ret = virDomainGetEmulatorPinInfo(ruby_libvirt_domain_get(d), cpumap,
                                       cpumaplen,
@@ -3070,7 +3065,7 @@ static VALUE libvirt_domain_pin_emulator(int argc, VALUE *argv, VALUE d)
 
     cpumaplen = VIR_CPU_MAPLEN(maxcpus);
 
-    cpumap = alloca(cpumaplen);
+    cpumap = alloca(sizeof(unsigned char) * cpumaplen);
     MEMZERO(cpumap, unsigned char, cpumaplen);
 
     for (i = 0; i < RARRAY_LEN(cpulist); i++) {
@@ -3263,6 +3258,9 @@ static struct ruby_libvirt_typed_param iotune_allowed[] = {
     {VIR_DOMAIN_BLOCK_IOTUNE_TOTAL_IOPS_SEC, VIR_TYPED_PARAM_ULLONG},
     {VIR_DOMAIN_BLOCK_IOTUNE_READ_IOPS_SEC, VIR_TYPED_PARAM_ULLONG},
     {VIR_DOMAIN_BLOCK_IOTUNE_WRITE_IOPS_SEC, VIR_TYPED_PARAM_ULLONG},
+#if HAVE_CONST_VIR_DOMAIN_BLOCK_IOTUNE_SIZE_IOPS_SEC
+    {VIR_DOMAIN_BLOCK_IOTUNE_SIZE_IOPS_SEC, VIR_TYPED_PARAM_ULLONG},
+#endif
 };
 
 /*
@@ -3955,7 +3953,7 @@ static VALUE libvirt_domain_migrate_to_uri3(int argc, VALUE *argv, VALUE d)
 }
 #endif
 
-#if HAVE_VIRNODEGETCPUSTATS
+#if HAVE_VIRDOMAINGETCPUSTATS
 /*
  * call-seq:
  *   dom.cpu_stats(start_cpu=-1, numcpus=1, flags=0) -> Hash
@@ -4048,6 +4046,237 @@ static VALUE libvirt_domain_cpu_stats(int argc, VALUE *argv, VALUE d)
 }
 #endif
 
+#if HAVE_VIRDOMAINGETTIME
+/*
+ * call-seq:
+ *   dom.time(flags=0) -> Hash
+ * Call virDomainGetTime[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainGetTime]
+ * to get information about the guest time.
+ */
+static VALUE libvirt_domain_get_time(int argc, VALUE *argv, VALUE d)
+{
+    VALUE flags, result;
+    long long seconds;
+    unsigned int nseconds;
+    int ret;
+
+    rb_scan_args(argc, argv, "01", &flags);
+
+    ret = virDomainGetTime(ruby_libvirt_domain_get(d), &seconds, &nseconds,
+                           ruby_libvirt_value_to_uint(flags));
+    ruby_libvirt_raise_error_if(ret < 0, e_Error, "virDomainGetTime",
+                                ruby_libvirt_connect_get(d));
+
+    result = rb_hash_new();
+    rb_hash_aset(result, rb_str_new2("seconds"), LL2NUM(seconds));
+    rb_hash_aset(result, rb_str_new2("nseconds"), UINT2NUM(nseconds));
+
+    return result;
+}
+#endif
+
+#if HAVE_VIRDOMAINSETTIME
+/*
+ * call-seq:
+ *   dom.time = Hash,flags=0
+ * Call virDomainSetTime[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainSetTime]
+ * to set guest time.
+ */
+static VALUE libvirt_domain_time_equal(VALUE d, VALUE in)
+{
+    VALUE hash, flags, seconds, nseconds;
+
+    ruby_libvirt_assign_hash_and_flags(in, &hash, &flags);
+
+    seconds = rb_hash_aref(hash, rb_str_new2("seconds"));
+    nseconds = rb_hash_aref(hash, rb_str_new2("nseconds"));
+
+    ruby_libvirt_generate_call_nil(virDomainSetTime,
+                                   ruby_libvirt_connect_get(d),
+                                   ruby_libvirt_domain_get(d),
+                                   NUM2LL(seconds), NUM2UINT(nseconds),
+                                   NUM2UINT(flags));
+}
+#endif
+
+#if HAVE_VIRDOMAINCOREDUMPWITHFORMAT
+/*
+ * call-seq:
+ *   dom.core_dump_with_format(filename, dumpformat, flags=0) -> nil
+ *
+ * Call virDomainCoreDumpWithFormat[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainCoreDump]
+ * to do a full memory dump of the domain to filename.
+ */
+static VALUE libvirt_domain_core_dump_with_format(int argc, VALUE *argv, VALUE d)
+{
+    VALUE to, dumpformat, flags;
+
+    rb_scan_args(argc, argv, "21", &to, &dumpformat, &flags);
+
+    ruby_libvirt_generate_call_nil(virDomainCoreDumpWithFormat,
+                                   ruby_libvirt_connect_get(d),
+                                   ruby_libvirt_domain_get(d),
+                                   StringValueCStr(to),
+                                   NUM2UINT(dumpformat),
+                                   ruby_libvirt_value_to_uint(flags));
+}
+#endif
+
+#if HAVE_VIRDOMAINFSFREEZE
+/*
+ * call-seq:
+ *   dom.fs_freeze(mountpoints=nil, flags=0) -> Fixnum
+ *
+ * Call virDomainFSFreeze[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainFSFreeze]
+ * to freeze the specified filesystems within the guest.
+ */
+static VALUE libvirt_domain_fs_freeze(int argc, VALUE *argv, VALUE d)
+{
+    VALUE mountpoints, flags, entry;
+    const char **mnt;
+    unsigned int nmountpoints;
+    int i;
+
+    rb_scan_args(argc, argv, "02", &mountpoints, &flags);
+
+    if (NIL_P(mountpoints)) {
+        mnt = NULL;
+        nmountpoints = 0;
+    }
+    else {
+        Check_Type(mountpoints, T_ARRAY);
+
+        nmountpoints = RARRAY_LEN(mountpoints);
+        mnt = alloca(nmountpoints * sizeof(char *));
+
+        for (i = 0; i < nmountpoints; i++) {
+            entry = rb_ary_entry(mountpoints, i);
+            mnt[i] = StringValueCStr(entry);
+        }
+    }
+
+    ruby_libvirt_generate_call_int(virDomainFSFreeze,
+                                   ruby_libvirt_connect_get(d),
+                                   ruby_libvirt_domain_get(d),
+                                   mnt, nmountpoints,
+                                   ruby_libvirt_value_to_uint(flags));
+}
+#endif
+
+ #if HAVE_VIRDOMAINFSTHAW
+/*
+ * call-seq:
+ *   dom.fs_thaw(mountpoints=nil, flags=0) -> Fixnum
+ *
+ * Call virDomainFSThaw[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainFSThaw]
+ * to thaw the specified filesystems within the guest.
+ */
+static VALUE libvirt_domain_fs_thaw(int argc, VALUE *argv, VALUE d)
+{
+    VALUE mountpoints, flags, entry;
+    const char **mnt;
+    unsigned int nmountpoints;
+    int i;
+
+    rb_scan_args(argc, argv, "02", &mountpoints, &flags);
+
+    if (NIL_P(mountpoints)) {
+        mnt = NULL;
+        nmountpoints = 0;
+    }
+    else {
+        Check_Type(mountpoints, T_ARRAY);
+
+        nmountpoints = RARRAY_LEN(mountpoints);
+        mnt = alloca(nmountpoints * sizeof(char *));
+
+        for (i = 0; i < nmountpoints; i++) {
+            entry = rb_ary_entry(mountpoints, i);
+            mnt[i] = StringValueCStr(entry);
+        }
+    }
+
+    ruby_libvirt_generate_call_int(virDomainFSThaw,
+                                   ruby_libvirt_connect_get(d),
+                                   ruby_libvirt_domain_get(d),
+                                   mnt, nmountpoints,
+                                   ruby_libvirt_value_to_uint(flags));
+}
+#endif
+
+#if HAVE_VIRDOMAINGETFSINFO
+struct fs_info_arg {
+    virDomainFSInfoPtr *info;
+    int ninfo;
+};
+
+static VALUE fs_info_wrap(VALUE arg)
+{
+    struct fs_info_arg *e = (struct fs_info_arg *)arg;
+    VALUE aliases, entry, result;
+    int i, j;
+
+    result = rb_ary_new2(e->ninfo);
+
+    for (i = 0; i < e->ninfo; i++) {
+        aliases = rb_ary_new2(e->info[i]->ndevAlias);
+        for (j = 0; j < e->info[i]->ndevAlias; j++) {
+            rb_ary_store(aliases, j, rb_str_new2(e->info[i]->devAlias[j]));
+        }
+
+        entry = rb_hash_new();
+        rb_hash_aset(entry, rb_str_new2("mountpoint"),
+                     rb_str_new2(e->info[i]->mountpoint));
+        rb_hash_aset(entry, rb_str_new2("name"),
+                     rb_str_new2(e->info[i]->name));
+        rb_hash_aset(entry, rb_str_new2("fstype"),
+                     rb_str_new2(e->info[i]->fstype));
+        rb_hash_aset(entry, rb_str_new2("aliases"), aliases);
+
+        rb_ary_store(result, i, entry);
+    }
+
+    return result;
+}
+
+/*
+ * call-seq:
+ *   dom.fs_info(flags=0) -> [Hash]
+ *
+ * Call virDomainGetFSInfo[http://www.libvirt.org/html/libvirt-libvirt.html#virDomainGetFSInfo]
+ * to get information about the guest filesystems.
+ */
+static VALUE libvirt_domain_fs_info(int argc, VALUE *argv, VALUE d)
+{
+    VALUE flags, result;
+    virDomainFSInfoPtr *info;
+    int ret, i = 0, exception;
+    struct fs_info_arg args;
+
+    rb_scan_args(argc, argv, "01", &flags);
+
+    ret = virDomainGetFSInfo(ruby_libvirt_domain_get(d), &info,
+                             ruby_libvirt_value_to_uint(flags));
+    ruby_libvirt_raise_error_if(ret < 0, e_Error, "virDomainGetFSInfo",
+                                ruby_libvirt_connect_get(d));
+
+    args.info = info;
+    args.ninfo = ret;
+    result = rb_protect(fs_info_wrap, (VALUE)&args, &exception);
+
+    for (i = 0; i < ret; i++) {
+        virDomainFSInfoFree(info[i]);
+    }
+    free(info);
+
+    if (exception) {
+        rb_jump_tag(exception);
+    }
+
+    return result;
+}
+#endif
+
 /*
  * Class Libvirt::Domain
  */
@@ -4114,6 +4343,14 @@ void ruby_libvirt_domain_init(void)
 #if HAVE_CONST_VIR_MIGRATE_ABORT_ON_ERROR
     rb_define_const(c_domain, "MIGRATE_ABORT_ON_ERROR",
                     INT2NUM(VIR_MIGRATE_ABORT_ON_ERROR));
+#endif
+#if HAVE_CONST_VIR_MIGRATE_AUTO_CONVERGE
+    rb_define_const(c_domain, "MIGRATE_AUTO_CONVERGE",
+                    INT2NUM(VIR_MIGRATE_AUTO_CONVERGE));
+#endif
+#if HAVE_CONST_VIR_MIGRATE_RDMA_PIN_ALL
+    rb_define_const(c_domain, "MIGRATE_RDMA_PIN_ALL",
+                    INT2NUM(VIR_MIGRATE_RDMA_PIN_ALL));
 #endif
 
     /* Ideally we would just have the "XML_SECURE" constant.  Unfortunately
@@ -4238,7 +4475,10 @@ void ruby_libvirt_domain_init(void)
     rb_define_const(c_domain, "UNDEFINE_SNAPSHOTS_METADATA",
                     INT2NUM(VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA));
 #endif
-
+#if HAVE_CONST_VIR_DOMAIN_UNDEFINE_NVRAM
+    rb_define_const(c_domain, "UNDEFINE_NVRAM",
+                    INT2NUM(VIR_DOMAIN_UNDEFINE_NVRAM));
+#endif
     rb_define_attr(c_domain, "connection", 1, 0);
 
 #if HAVE_CONST_VIR_DOMAIN_SHUTDOWN_DEFAULT
@@ -4261,6 +4501,10 @@ void ruby_libvirt_domain_init(void)
     rb_define_const(c_domain, "SHUTDOWN_SIGNAL",
                     INT2NUM(VIR_DOMAIN_SHUTDOWN_SIGNAL));
 #endif
+#if HAVE_CONST_VIR_DOMAIN_SHUTDOWN_PARAVIRT
+    rb_define_const(c_domain, "SHUTDOWN_PARAVIRT",
+                    INT2NUM(VIR_DOMAIN_SHUTDOWN_PARAVIRT));
+#endif
     rb_define_method(c_domain, "shutdown", libvirt_domain_shutdown, -1);
 
 #if HAVE_CONST_VIR_DOMAIN_REBOOT_DEFAULT
@@ -4282,6 +4526,10 @@ void ruby_libvirt_domain_init(void)
 #if HAVE_CONST_VIR_DOMAIN_REBOOT_SIGNAL
     rb_define_const(c_domain, "REBOOT_SIGNAL",
                     INT2NUM(VIR_DOMAIN_REBOOT_SIGNAL));
+#endif
+#if HAVE_CONST_VIR_DOMAIN_REBOOT_PARAVIRT
+    rb_define_const(c_domain, "REBOOT_PARAVIRT",
+                    INT2NUM(VIR_DOMAIN_REBOOT_PARAVIRT));
 #endif
     rb_define_method(c_domain, "reboot", libvirt_domain_reboot, -1);
 #if HAVE_CONST_VIR_DOMAIN_DESTROY_DEFAULT
@@ -5402,10 +5650,19 @@ void ruby_libvirt_domain_init(void)
     rb_define_method(c_domain, "block_job_speed=",
                      libvirt_domain_block_job_speed_equal, 1);
 #endif
+#if HAVE_CONST_VIR_DOMAIN_BLOCK_JOB_SPEED_BANDWIDTH_BYTES
+    rb_define_const(c_domain, "BLOCK_JOB_SPEED_BANDWIDTH_BYTES",
+                    INT2NUM(VIR_DOMAIN_BLOCK_JOB_SPEED_BANDWIDTH_BYTES));
+#endif
 #if HAVE_VIRDOMAINGETBLOCKJOBINFO
     rb_define_method(c_domain, "block_job_info", libvirt_domain_block_job_info,
                      -1);
 #endif
+#if HAVE_CONST_VIR_DOMAIN_BLOCK_JOB_INFO_BANDWIDTH_BYTES
+    rb_define_const(c_domain, "BLOCK_JOB_INFO_BANDWIDTH_BYTES",
+                    INT2NUM(VIR_DOMAIN_BLOCK_JOB_INFO_BANDWIDTH_BYTES));
+#endif
+
 #if HAVE_VIRDOMAINBLOCKJOBABORT
     rb_define_method(c_domain, "block_job_abort",
                      libvirt_domain_block_job_abort, -1);
@@ -5471,6 +5728,18 @@ void ruby_libvirt_domain_init(void)
     rb_define_const(c_domain, "BLOCK_COMMIT_DELETE",
                     INT2NUM(VIR_DOMAIN_BLOCK_COMMIT_DELETE));
 #endif
+#if HAVE_CONST_VIR_DOMAIN_BLOCK_COMMIT_ACTIVE
+    rb_define_const(c_domain, "BLOCK_COMMIT_ACTIVE",
+                    INT2NUM(VIR_DOMAIN_BLOCK_COMMIT_ACTIVE));
+#endif
+#if HAVE_CONST_VIR_DOMAIN_BLOCK_COMMIT_RELATIVE
+    rb_define_const(c_domain, "BLOCK_COMMIT_RELATIVE",
+                    INT2NUM(VIR_DOMAIN_BLOCK_COMMIT_RELATIVE));
+#endif
+#if HAVE_CONST_VIR_DOMAIN_BLOCK_COMMIT_BANDWIDTH_BYTES
+    rb_define_const(c_domain, "BLOCK_COMMIT_BANDWIDTH_BYTES",
+                    INT2NUM(VIR_DOMAIN_BLOCK_COMMIT_BANDWIDTH_BYTES));
+#endif
 #if HAVE_CONST_VIR_DOMAIN_BLOCK_JOB_TYPE_UNKNOWN
     rb_define_const(c_domain, "BLOCK_JOB_TYPE_UNKNOWN",
                     INT2NUM(VIR_DOMAIN_BLOCK_JOB_TYPE_UNKNOWN));
@@ -5486,6 +5755,10 @@ void ruby_libvirt_domain_init(void)
 #if HAVE_CONST_VIR_DOMAIN_BLOCK_JOB_TYPE_COMMIT
     rb_define_const(c_domain, "BLOCK_JOB_TYPE_COMMIT",
                     INT2NUM(VIR_DOMAIN_BLOCK_JOB_TYPE_COMMIT));
+#endif
+#if HAVE_CONST_VIR_DOMAIN_BLOCK_JOB_TYPE_ACTIVE_COMMIT
+    rb_define_const(c_domain, "BLOCK_JOB_TYPE_ACTIVE_COMMIT",
+                    INT2NUM(VIR_DOMAIN_BLOCK_JOB_TYPE_ACTIVE_COMMIT));
 #endif
 #if HAVE_CONST_VIR_DOMAIN_BLOCK_JOB_ABORT_ASYNC
     rb_define_const(c_domain, "BLOCK_JOB_ABORT_ASYNC",
@@ -5513,5 +5786,40 @@ void ruby_libvirt_domain_init(void)
 #endif
 #if HAVE_VIRDOMAINGETCPUSTATS
     rb_define_method(c_domain, "cpu_stats", libvirt_domain_cpu_stats, -1);
+#endif
+#if HAVE_CONST_VIR_DOMAIN_CORE_DUMP_FORMAT_RAW
+    rb_define_const(c_domain, "CORE_DUMP_FORMAT_RAW",
+                    INT2NUM(VIR_DOMAIN_CORE_DUMP_FORMAT_RAW));
+#endif
+#if HAVE_CONST_VIR_DOMAIN_CORE_DUMP_FORMAT_KDUMP_ZLIB
+    rb_define_const(c_domain, "CORE_DUMP_FORMAT_KDUMP_ZLIB",
+                    INT2NUM(VIR_DOMAIN_CORE_DUMP_FORMAT_KDUMP_ZLIB));
+#endif
+#if HAVE_CONST_VIR_DOMAIN_CORE_DUMP_FORMAT_KDUMP_LZO
+    rb_define_const(c_domain, "CORE_DUMP_FORMAT_KDUMP_LZO",
+                    INT2NUM(VIR_DOMAIN_CORE_DUMP_FORMAT_KDUMP_LZO));
+#endif
+#if HAVE_CONST_VIR_DOMAIN_CORE_DUMP_FORMAT_KDUMP_SNAPPY
+    rb_define_const(c_domain, "CORE_DUMP_FORMAT_KDUMP_SNAPPY",
+                    INT2NUM(VIR_DOMAIN_CORE_DUMP_FORMAT_KDUMP_SNAPPY));
+#endif
+#if HAVE_VIRDOMAINGETTIME
+    rb_define_method(c_domain, "time", libvirt_domain_get_time, -1);
+#endif
+#if HAVE_VIRDOMAINSETTIME
+    rb_define_method(c_domain, "time=", libvirt_domain_time_equal, 1);
+#endif
+#if HAVE_VIRDOMAINCOREDUMPWITHFORMAT
+    rb_define_method(c_domain, "core_dump_with_format",
+                     libvirt_domain_core_dump_with_format, -1);
+#endif
+#if HAVE_VIRDOMAINFSFREEZE
+    rb_define_method(c_domain, "fs_freeze", libvirt_domain_fs_freeze, -1);
+#endif
+#if HAVE_VIRDOMAINFSTHAW
+    rb_define_method(c_domain, "fs_thaw", libvirt_domain_fs_thaw, -1);
+#endif
+#if HAVE_VIRDOMAINGETFSINFO
+    rb_define_method(c_domain, "fs_info", libvirt_domain_fs_info, -1);
 #endif
 }
