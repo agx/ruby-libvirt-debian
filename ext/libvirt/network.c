@@ -2,7 +2,7 @@
  * network.c: virNetwork methods
  *
  * Copyright (C) 2007,2010 Red Hat Inc.
- * Copyright (C) 2013 Chris Lalancette <clalancette@gmail.com>
+ * Copyright (C) 2013,2014 Chris Lalancette <clalancette@gmail.com>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -107,7 +107,7 @@ static VALUE libvirt_network_destroy(VALUE n)
 
 /*
  * call-seq:
- *   net.name -> string
+ *   net.name -> String
  *
  * Call virNetworkGetName[http://www.libvirt.org/html/libvirt-libvirt.html#virNetworkGetName]
  * to retrieve the name of this network.
@@ -121,7 +121,7 @@ static VALUE libvirt_network_name(VALUE n)
 
 /*
  * call-seq:
- *   net.uuid -> string
+ *   net.uuid -> String
  *
  * Call virNetworkGetUUIDString[http://www.libvirt.org/html/libvirt-libvirt.html#virNetworkGetUUIDString]
  * to retrieve the UUID of this network.
@@ -134,7 +134,7 @@ static VALUE libvirt_network_uuid(VALUE n)
 
 /*
  * call-seq:
- *   net.xml_desc(flags=0) -> string
+ *   net.xml_desc(flags=0) -> String
  *
  * Call virNetworkGetXMLDesc[http://www.libvirt.org/html/libvirt-libvirt.html#virNetworkGetXMLDesc]
  * to retrieve the XML for this network.
@@ -153,7 +153,7 @@ static VALUE libvirt_network_xml_desc(int argc, VALUE *argv, VALUE n)
 
 /*
  * call-seq:
- *   net.bridge_name -> string
+ *   net.bridge_name -> String
  *
  * Call virNetworkGetBridgeName[http://www.libvirt.org/html/libvirt-libvirt.html#virNetworkGetBridgeName]
  * to retrieve the bridge name for this network.
@@ -243,6 +243,84 @@ static VALUE libvirt_network_persistent_p(VALUE n)
     ruby_libvirt_generate_call_truefalse(virNetworkIsPersistent,
                                          ruby_libvirt_connect_get(n),
                                          network_get(n));
+}
+#endif
+
+#if HAVE_VIRNETWORKGETDHCPLEASES
+struct leases_arg {
+    virNetworkDHCPLeasePtr *leases;
+    int nleases;
+};
+
+static VALUE leases_wrap(VALUE arg)
+{
+    struct leases_arg *e = (struct leases_arg *)arg;
+    VALUE result, hash;
+    virNetworkDHCPLeasePtr lease;
+    int i;
+
+    result = rb_ary_new2(e->nleases);
+
+    for (i = 0; i < e->nleases; i++) {
+        lease = e->leases[i];
+
+        hash = rb_hash_new();
+        rb_hash_aset(hash, rb_str_new2("iface"), rb_str_new2(lease->iface));
+        rb_hash_aset(hash, rb_str_new2("expirytime"),
+                     LL2NUM(lease->expirytime));
+        rb_hash_aset(hash, rb_str_new2("type"), INT2NUM(lease->type));
+        rb_hash_aset(hash, rb_str_new2("mac"), rb_str_new2(lease->mac));
+        rb_hash_aset(hash, rb_str_new2("iaid"), rb_str_new2(lease->iaid));
+        rb_hash_aset(hash, rb_str_new2("ipaddr"), rb_str_new2(lease->ipaddr));
+        rb_hash_aset(hash, rb_str_new2("prefix"), UINT2NUM(lease->prefix));
+        rb_hash_aset(hash, rb_str_new2("hostname"),
+                     rb_str_new2(lease->hostname));
+        rb_hash_aset(hash, rb_str_new2("clientid"),
+                     rb_str_new2(lease->clientid));
+
+        rb_ary_store(result, i, hash);
+    }
+
+    return result;
+}
+
+/*
+ * call-seq:
+ *   net.dhcp_leases(mac=nil, flags=0) -> Hash
+ *
+ * Call virNetworkGetDHCPLeases[http://www.libvirt.org/html/libvirt-libvirt.html#virNetworkGetDHCPLeases]
+ * to retrieve the leases for this network.
+ */
+static VALUE libvirt_network_get_dhcp_leases(int argc, VALUE *argv, VALUE n)
+{
+    VALUE mac, flags, result;
+    int nleases, i = 0, exception = 0;
+    virNetworkDHCPLeasePtr *leases = NULL;
+    struct leases_arg args;
+
+    rb_scan_args(argc, argv, "02", &mac, &flags);
+
+    nleases = virNetworkGetDHCPLeases(network_get(n),
+                                      ruby_libvirt_get_cstring_or_null(mac),
+                                      &leases,
+                                      ruby_libvirt_value_to_uint(flags));
+    ruby_libvirt_raise_error_if(nleases < 0, e_Error, "virNetworkGetDHCPLeases",
+                                ruby_libvirt_connect_get(n));
+
+    args.leases = leases;
+    args.nleases = nleases;
+    result = rb_protect(leases_wrap, (VALUE)&args, &exception);
+
+    for (i = 0; i < nleases; i++) {
+        virNetworkDHCPLeaseFree(leases[i]);
+    }
+    free(leases);
+
+    if (exception) {
+        rb_jump_tag(exception);
+    }
+
+    return result;
 }
 #endif
 
@@ -448,6 +526,21 @@ void ruby_libvirt_network_init(void)
 #if HAVE_CONST_VIR_NETWORK_UPDATE_COMMAND_DELETE
     rb_define_const(c_network, "UPDATE_COMMAND_DELETE",
                     INT2NUM(VIR_NETWORK_UPDATE_COMMAND_DELETE));
+#endif
+
+#if HAVE_VIRNETWORKGETDHCPLEASES
+    rb_define_method(c_network, "dhcp_leases",
+                     libvirt_network_get_dhcp_leases, -1);
+#endif
+
+#if HAVE_CONST_VIR_IP_ADDR_TYPE_IPV4
+    rb_define_const(c_network, "IP_ADDR_TYPE_IPV4",
+                    INT2NUM(VIR_IP_ADDR_TYPE_IPV4));
+#endif
+
+#if HAVE_CONST_VIR_IP_ADDR_TYPE_IPV6
+    rb_define_const(c_network, "IP_ADDR_TYPE_IPV6",
+                    INT2NUM(VIR_IP_ADDR_TYPE_IPV6));
 #endif
 
 #endif
