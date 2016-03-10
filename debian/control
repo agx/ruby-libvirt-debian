@@ -7,7 +7,7 @@ Build-Depends: debhelper (>= 7.0.50~), gem2deb (>= 0.6.0), libvirt-dev, pkg-conf
 # for the tests
  rake,
  libvirt-daemon
-Standards-Version: 3.9.5
+Standards-Version: 3.9.6
 Vcs-Git: git://anonscm.debian.org/git/pkg-libvirt/ruby-libvirt.git
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=pkg-libvirt/ruby-libvirt.git;a=summary
 Homepage: http://libvirt.org/ruby/
