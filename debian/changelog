@@ -1,3 +1,12 @@
+ruby-libvirt (0.6.0-1) unstable; urgency=medium
+
+  * [dc7846f] New upstream version 0.6.0
+  * [f33fafb] Build-dep on libvirt-daemon instead of libvirt-bin since the
+    later is no more (Closes: #817262)
+  * [e2d0e90] Bump standards version
+
+ -- Guido Günther <agx@sigxcpu.org>  Thu, 10 Mar 2016 19:53:27 +0100
+
 ruby-libvirt (0.5.2-1) experimental; urgency=medium
 
   * Upload to experimental
