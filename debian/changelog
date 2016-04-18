@@ -1,3 +1,16 @@
+ruby-libvirt (0.6.0-1.1) UNRELEASED; urgency=medium
+
+  * Non-maintainer upload.
+  * debian/rules: remove manual test run in favor of gem2deb's own mechanism
+    for running tests, avoiding building the C extension twice on every Debian
+    build.
+    * This also gives us autopkgtest support almost for free; so add
+      `Testsuite: autopkgtest` in debian/control
+  * debian/rules: call debian/gemspec.rake to build a gemspec during the build
+    (Closes: #795603)
+
+ -- Antonio Terceiro <terceiro@debian.org>  Sun, 17 Apr 2016 14:04:22 -0300
+
 ruby-libvirt (0.6.0-1) unstable; urgency=medium
 
   * [dc7846f] New upstream version 0.6.0
