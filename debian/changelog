@@ -1,6 +1,6 @@
-ruby-libvirt (0.6.0-1.1) UNRELEASED; urgency=medium
+ruby-libvirt (0.6.0-2) unstable; urgency=medium
 
-  * Non-maintainer upload.
+  [ Antonio Terceiro ]
   * debian/rules: remove manual test run in favor of gem2deb's own mechanism
     for running tests, avoiding building the C extension twice on every Debian
     build.
@@ -9,7 +9,7 @@ ruby-libvirt (0.6.0-1.1) UNRELEASED; urgency=medium
   * debian/rules: call debian/gemspec.rake to build a gemspec during the build
     (Closes: #795603)
 
- -- Antonio Terceiro <terceiro@debian.org>  Sun, 17 Apr 2016 14:04:22 -0300
+ -- Guido Günther <agx@sigxcpu.org>  Mon, 18 Apr 2016 19:28:00 +0200
 
 ruby-libvirt (0.6.0-1) unstable; urgency=medium
 
