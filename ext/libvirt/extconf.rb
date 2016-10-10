@@ -222,6 +222,9 @@ libvirt_funcs = [ 'virStorageVolWipe',
                   'virDomainFSThaw',
                   'virDomainGetFSInfo',
                   'virNodeGetFreePages',
+                  'virDomainDefineXMLFlags',
+                  'virDomainRename',
+                  'virDomainSetUserPassword',
                 ]
 
 libvirt_qemu_funcs = [ 'virDomainQemuMonitorCommand',
@@ -428,6 +431,16 @@ libvirt_consts = [ 'VIR_MIGRATE_LIVE',
                    'VIR_DOMAIN_BLOCK_COMMIT_RELATIVE',
                    'VIR_DOMAIN_BLOCK_COMMIT_BANDWIDTH_BYTES',
                    'VIR_DOMAIN_BLOCK_IOTUNE_SIZE_IOPS_SEC',
+                   'VIR_STORAGE_POOL_CREATE_NORMAL',
+                   'VIR_STORAGE_POOL_CREATE_WITH_BUILD',
+                   'VIR_STORAGE_POOL_CREATE_WITH_BUILD_OVERWRITE',
+                   'VIR_STORAGE_POOL_CREATE_WITH_BUILD_NO_OVERWRITE',
+                   'VIR_STORAGE_VOL_CREATE_REFLINK',
+                   'VIR_STORAGE_VOL_DELETE_WITH_SNAPSHOTS',
+                   'VIR_DOMAIN_QEMU_AGENT_COMMAND_SHUTDOWN',
+                   'VIR_DOMAIN_DEFINE_VALIDATE',
+                   'VIR_DOMAIN_PASSWORD_ENCRYPTED',
+                   'VIR_DOMAIN_TIME_SYNC',
                  ]
 
 virterror_consts = [
