@@ -2,11 +2,15 @@ Source: ruby-libvirt
 Section: ruby
 Priority: optional
 Maintainer: Debian Libvirt Maintainers <pkg-libvirt-maintainers@lists.alioth.debian.org>
-Uploaders: Guido Günther <agx@sigxcpu.org>
-Build-Depends: debhelper (>= 7.0.50~), gem2deb (>= 0.6.0), libvirt-dev, pkg-config,
-# for the tests
+Uploaders:
+ Guido Günther <agx@sigxcpu.org>,
+Build-Depends:
+ debhelper (>= 7.0.50~),
+ gem2deb (>= 0.6.0),
+ libvirt-daemon,
+ libvirt-dev,
+ pkg-config,
  rake,
- libvirt-daemon
 Standards-Version: 4.2.1
 Vcs-Git: https://salsa.debian.org/libvirt-team/ruby-libvirt.git
 Vcs-Browser: https://salsa.debian.org/libvirt-team/ruby-libvirt
@@ -17,7 +21,10 @@ Testsuite: autopkgtest
 Package: ruby-libvirt
 Architecture: any
 XB-Ruby-Versions: ${ruby:Versions}
-Depends: ${shlibs:Depends}, ${misc:Depends}, ruby | ruby-interpreter
+Depends:
+ ruby | ruby-interpreter,
+ ${misc:Depends},
+ ${shlibs:Depends},
 Description: Ruby bindings for libvirt
  This library provides Ruby bindings for using libvirt.
  .
