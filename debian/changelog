@@ -1,3 +1,11 @@
+ruby-libvirt (0.7.1-1~1.gbpf81bb3) UNRELEASED; urgency=medium
+
+  ** SNAPSHOT build @f81bb3309bd446e0d4d45198706342d27eced66c **
+
+  * New upstream version 0.7.1
+
+ -- Guido Günther <agx@sigxcpu.org>  Thu, 08 Nov 2018 09:12:53 +0100
+
 ruby-libvirt (0.7.0-1) unstable; urgency=medium
 
   * [b96e308] New upstream version 0.7.0
