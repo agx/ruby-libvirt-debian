@@ -5,7 +5,7 @@ Maintainer: Debian Libvirt Maintainers <pkg-libvirt-maintainers@lists.alioth.deb
 Uploaders:
  Guido Günther <agx@sigxcpu.org>,
 Build-Depends:
- debhelper (>= 7.0.50~),
+ debhelper (>= 11~),
  gem2deb (>= 0.6.0),
  libvirt-daemon,
  libvirt-dev,
